@@ -1,0 +1,111 @@
+@import "tailwindcss";
+@import "@xyflow/react/dist/style.css";
+
+:root {
+  --background: #f8fafc;
+  --foreground: #0f172a;
+}
+
+body {
+  background: #f8fafc;
+  color: #0f172a;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* React Flow Light Theme Enhancements */
+.react-flow {
+  background-color: #f8fafc;
+}
+
+.react-flow__handle {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background-color: #3b82f6;
+  border: 2px solid #ffffff;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.15);
+  transition: transform 0.15s ease, background-color 0.15s ease;
+  z-index: 10;
+}
+
+.react-flow__handle:hover {
+  transform: scale(1.35);
+  background-color: #1d4ed8;
+}
+
+.react-flow__handle-connecting {
+  background-color: #ef4444;
+}
+
+.react-flow__handle-valid {
+  background-color: #10b981;
+}
+
+.react-flow__node {
+  cursor: grab;
+}
+
+.react-flow__node.selected > div {
+  outline: 2px solid #3b82f6 !important;
+  outline-offset: 2px !important;
+}
+
+.react-flow__edge-path {
+  stroke-width: 2;
+  transition: stroke 0.15s ease, stroke-width 0.15s ease;
+}
+
+.react-flow__edge.selected .react-flow__edge-path {
+  stroke: #2563eb !important;
+  stroke-width: 2.5 !important;
+}
+
+.react-flow__controls {
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #ffffff;
+}
+
+.react-flow__controls-button {
+  background: #ffffff;
+  border-bottom: 1px solid #f1f5f9;
+  color: #475569;
+  fill: #475569;
+}
+
+.react-flow__controls-button:hover {
+  background: #f8fafc;
+  color: #0f172a;
+  fill: #0f172a;
+}
+
+.react-flow__minimap {
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background-color: #ffffff;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+  overflow: hidden;
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
