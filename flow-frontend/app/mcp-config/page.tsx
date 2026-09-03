@@ -22,6 +22,7 @@ import {
   HelpCircle,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
+import { FlowCraftLogo } from '@/components/brand/FlowCraftLogo';
 
 export default function McpConfigPage() {
   const { user, openLoginModal } = useAuth();
@@ -202,10 +203,8 @@ export default function McpConfigPage() {
 
             <div className="h-5 w-px bg-slate-200" />
 
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-xs">
-                <Terminal className="w-4 h-4" />
-              </div>
+            <div className="flex items-center gap-2.5">
+              <FlowCraftLogo size="sm" />
               <div>
                 <h1 className="text-sm font-bold text-slate-900">MCP Configuration & API Token</h1>
                 <p className="text-[11px] text-slate-500">Connect Claude Desktop, Cursor & AI agents to FlowCraft</p>
@@ -540,6 +539,29 @@ export default function McpConfigPage() {
           </div>
         </div>
       </main>
+
+      {/* Footer */}
+      <footer className="mt-16 border-t border-slate-200/80 bg-white py-6">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-500">
+          <div className="flex items-center gap-2">
+            <span className="font-semibold text-slate-700">FlowCraft</span>
+            <span className="text-slate-300">•</span>
+            <span>Model Context Protocol Studio</span>
+          </div>
+
+          <p className="flex items-center gap-1.5">
+            <span>a product built with love by</span>
+            <Link
+              href="https://www.shipsar.in"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-semibold text-blue-600 hover:text-blue-700 hover:underline transition-colors"
+            >
+              Shipsar Developers
+            </Link>
+          </p>
+        </div>
+      </footer>
     </div>
   );
 }

@@ -162,7 +162,7 @@ export function DiagramCard({
                   setMenuOpen(false);
                   onDuplicate(diagram.id);
                 }}
-                className="w-full text-left px-3 py-1.5 hover:bg-slate-50 flex items-center gap-2"
+                className="w-full text-left px-3 py-1.5 hover:bg-slate-50 flex items-center gap-2 cursor-pointer"
               >
                 <Copy className="w-3.5 h-3.5 text-slate-500" />
                 <span>Duplicate Flow</span>
@@ -172,22 +172,34 @@ export function DiagramCard({
                   setMenuOpen(false);
                   onExport(diagram.id);
                 }}
-                className="w-full text-left px-3 py-1.5 hover:bg-slate-50 flex items-center gap-2"
+                className="w-full text-left px-3 py-1.5 hover:bg-slate-50 flex items-center gap-2 cursor-pointer"
               >
                 <Download className="w-3.5 h-3.5 text-slate-500" />
                 <span>Export JSON</span>
               </button>
-              <div className="my-1 border-t border-slate-100" />
-              <button
-                onClick={() => {
-                  setMenuOpen(false);
-                  onDelete(diagram);
-                }}
-                className="w-full text-left px-3 py-1.5 hover:bg-red-50 text-red-600 flex items-center gap-2"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                <span>Delete</span>
-              </button>
+
+              {!diagram.isTemplate && !diagram.id.startsWith('template-') ? (
+                <>
+                  <div className="my-1 border-t border-slate-100" />
+                  <button
+                    onClick={() => {
+                      setMenuOpen(false);
+                      onDelete(diagram);
+                    }}
+                    className="w-full text-left px-3 py-1.5 hover:bg-red-50 text-red-600 flex items-center gap-2 cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Delete</span>
+                  </button>
+                </>
+              ) : (
+                <>
+                  <div className="my-1 border-t border-slate-100" />
+                  <div className="px-3 py-1 text-[10px] text-slate-400 italic">
+                    Protected Sample Template
+                  </div>
+                </>
+              )}
             </div>
           )}
         </div>
@@ -213,12 +225,20 @@ export function DiagramCard({
         />
 
         <div className="relative flex items-center justify-between z-10">
-          <span
-            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${config.badgeBg} ${config.badgeText} border border-white shadow-2xs`}
-          >
-            {config.icon}
-            <span>{config.label}</span>
-          </span>
+          <div className="flex items-center gap-1.5">
+            <span
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${config.badgeBg} ${config.badgeText} border border-white shadow-2xs`}
+            >
+              {config.icon}
+              <span>{config.label}</span>
+            </span>
+
+            {(diagram.isTemplate || diagram.id.startsWith('template-')) && (
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-50 text-blue-700 border border-blue-200 shadow-2xs">
+                Sample
+              </span>
+            )}
+          </div>
 
           <span className="text-[11px] font-mono text-slate-500 bg-white/90 px-2 py-0.5 rounded-md border border-slate-200/80 shadow-2xs">
             {nodeCount} nodes • {edgeCount} edges
@@ -290,17 +310,28 @@ export function DiagramCard({
                     <Download className="w-3.5 h-3.5 text-slate-500" />
                     <span>Export JSON</span>
                   </button>
-                  <div className="my-1 border-t border-slate-100" />
-                  <button
-                    onClick={() => {
-                      setMenuOpen(false);
-                      onDelete(diagram);
-                    }}
-                    className="w-full text-left px-3 py-1.5 hover:bg-red-50 text-red-600 flex items-center gap-2"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                    <span>Delete</span>
-                  </button>
+                  {!diagram.isTemplate && !diagram.id.startsWith('template-') ? (
+                    <>
+                      <div className="my-1 border-t border-slate-100" />
+                      <button
+                        onClick={() => {
+                          setMenuOpen(false);
+                          onDelete(diagram);
+                        }}
+                        className="w-full text-left px-3 py-1.5 hover:bg-red-50 text-red-600 flex items-center gap-2 cursor-pointer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>Delete</span>
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <div className="my-1 border-t border-slate-100" />
+                      <div className="px-3 py-1 text-[10px] text-slate-400 italic">
+                        Protected Sample Template
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
             </div>
@@ -339,7 +370,7 @@ export function DiagramCard({
             href={`/flow/${diagram.id}`}
             className="inline-flex items-center gap-1 font-semibold text-xs text-blue-600 hover:text-blue-700 group/link"
           >
-            <span>Open Canvas</span>
+            <span>{diagram.isTemplate || diagram.id.startsWith('template-') ? 'View Sample' : 'Open Canvas'}</span>
             <ExternalLink className="w-3 h-3 transition-transform group-hover/link:translate-x-0.5" />
           </Link>
         </div>

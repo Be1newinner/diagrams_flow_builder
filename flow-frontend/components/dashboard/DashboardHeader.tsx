@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { DiagramCategory } from '@/types/diagram';
+import { FlowCraftLogo } from '@/components/brand/FlowCraftLogo';
 
 interface DashboardHeaderProps {
   searchQuery: string;
@@ -36,6 +37,8 @@ interface DashboardHeaderProps {
     flowchart: number;
     erDiagram: number;
   };
+  userDiagramCount?: number;
+  maxDiagramLimit?: number;
 }
 
 export function DashboardHeader({
@@ -48,6 +51,8 @@ export function DashboardHeader({
   viewMode,
   onViewModeChange,
   counts,
+  userDiagramCount = 0,
+  maxDiagramLimit = 30,
 }: DashboardHeaderProps) {
   const { user, logout, openLoginModal, openRegisterModal } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -83,9 +88,7 @@ export function DashboardHeader({
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           {/* Logo & Brand */}
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white shadow-sm ring-4 ring-blue-50">
-              <Sparkles className="w-5 h-5" />
-            </div>
+            <FlowCraftLogo size="md" />
             <div>
               <div className="flex items-center gap-2">
                 <h1 className="text-xl font-bold text-slate-900 tracking-tight">FlowCraft</h1>
@@ -125,6 +128,33 @@ export function DashboardHeader({
               <Terminal className="w-3.5 h-3.5 text-blue-600" />
               <span>MCP Config</span>
             </Link>
+
+            {/* Diagram Limit Indicator: '20/30 diagrams' */}
+            <div
+              className={`inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg border shadow-xs transition-colors ${
+                userDiagramCount >= maxDiagramLimit
+                  ? 'bg-rose-50 text-rose-700 border-rose-200'
+                  : userDiagramCount >= 25
+                  ? 'bg-amber-50 text-amber-700 border-amber-200'
+                  : 'bg-slate-50 text-slate-700 border-slate-200'
+              }`}
+              title={
+                userDiagramCount >= maxDiagramLimit
+                  ? `Storage limit reached (${userDiagramCount}/${maxDiagramLimit}). Delete older diagrams to create new ones.`
+                  : `${maxDiagramLimit - userDiagramCount} diagram slots remaining`
+              }
+            >
+              <div
+                className={`w-2 h-2 rounded-full ${
+                  userDiagramCount >= maxDiagramLimit
+                    ? 'bg-rose-500'
+                    : userDiagramCount >= 25
+                    ? 'bg-amber-500'
+                    : 'bg-emerald-500'
+                }`}
+              />
+              <span>{userDiagramCount}/{maxDiagramLimit} diagrams</span>
+            </div>
 
             <button
               onClick={onOpenCreateModal}

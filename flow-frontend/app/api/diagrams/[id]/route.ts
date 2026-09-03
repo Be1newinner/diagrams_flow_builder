@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getServerDiagram, saveServerDiagram, deleteServerDiagram } from '@/lib/serverStorage';
+import { resolveAuthUserId } from '@/lib/auth';
 import { Diagram } from '@/types/diagram';
 
 export async function GET(
@@ -7,9 +8,11 @@ export async function GET(
   props: { params: Promise<{ id: string }> }
 ) {
   const { id } = await props.params;
-  const diagram = await getServerDiagram(id);
+  const userId = await resolveAuthUserId(request);
+  const diagram = await getServerDiagram(id, userId);
+
   if (!diagram) {
-    return NextResponse.json({ error: 'Diagram not found' }, { status: 404 });
+    return NextResponse.json({ error: 'Diagram not found or access denied' }, { status: 404 });
   }
   return NextResponse.json(diagram);
 }
@@ -19,9 +22,34 @@ export async function PUT(
   props: { params: Promise<{ id: string }> }
 ) {
   const { id } = await props.params;
-  const existing = await getServerDiagram(id);
+  const userId = await resolveAuthUserId(request);
+
+  if (!userId) {
+    return NextResponse.json(
+      { error: 'Authentication required. Sign in to edit diagrams.' },
+      { status: 401 }
+    );
+  }
+
+  const existing = await getServerDiagram(id, userId);
   if (!existing) {
-    return NextResponse.json({ error: 'Diagram not found' }, { status: 404 });
+    return NextResponse.json({ error: 'Diagram not found or access denied' }, { status: 404 });
+  }
+
+  // Prevent modifying built-in sample templates
+  if (existing.isTemplate || existing.id.startsWith('template-')) {
+    return NextResponse.json(
+      { error: 'Cannot modify built-in sample templates. Duplicate to your account to edit.' },
+      { status: 403 }
+    );
+  }
+
+  // Ensure user owns this diagram
+  if (existing.userId && existing.userId !== userId) {
+    return NextResponse.json(
+      { error: 'Forbidden: You can only edit your own diagrams.' },
+      { status: 403 }
+    );
   }
 
   try {
@@ -30,11 +58,13 @@ export async function PUT(
       ...existing,
       ...body,
       id,
+      userId,
+      isTemplate: false,
     };
-    const saved = await saveServerDiagram(updated);
+    const saved = await saveServerDiagram(updated, userId);
     return NextResponse.json(saved);
-  } catch (error) {
-    return NextResponse.json({ error: 'Failed to update diagram' }, { status: 500 });
+  } catch (error: any) {
+    return NextResponse.json({ error: error.message || 'Failed to update diagram' }, { status: 500 });
   }
 }
 
@@ -43,9 +73,45 @@ export async function DELETE(
   props: { params: Promise<{ id: string }> }
 ) {
   const { id } = await props.params;
-  const success = await deleteServerDiagram(id);
+  const userId = await resolveAuthUserId(request);
+
+  if (!userId) {
+    return NextResponse.json(
+      { error: 'Authentication required. Sign in to delete diagrams.' },
+      { status: 401 }
+    );
+  }
+
+  // Prevent deleting system sample templates
+  if (id.startsWith('template-')) {
+    return NextResponse.json(
+      { error: 'Cannot delete built-in sample templates.' },
+      { status: 403 }
+    );
+  }
+
+  const existing = await getServerDiagram(id, userId);
+  if (!existing) {
+    return NextResponse.json({ error: 'Diagram not found or access denied' }, { status: 404 });
+  }
+
+  if (existing.isTemplate) {
+    return NextResponse.json(
+      { error: 'Cannot delete built-in sample templates.' },
+      { status: 403 }
+    );
+  }
+
+  if (existing.userId && existing.userId !== userId) {
+    return NextResponse.json(
+      { error: 'Forbidden: You can only delete your own diagrams.' },
+      { status: 403 }
+    );
+  }
+
+  const success = await deleteServerDiagram(id, userId);
   if (!success) {
-    return NextResponse.json({ error: 'Diagram not found or deletion failed' }, { status: 404 });
+    return NextResponse.json({ error: 'Deletion failed' }, { status: 500 });
   }
   return NextResponse.json({ success: true, message: 'Diagram deleted' });
 }

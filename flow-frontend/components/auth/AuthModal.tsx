@@ -14,6 +14,7 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
+import { FlowCraftLogo } from '@/components/brand/FlowCraftLogo';
 
 export function AuthModal() {
   const { isAuthModalOpen, authModalMode, closeAuthModal, openLoginModal, openRegisterModal, login, register } = useAuth();
@@ -98,9 +99,7 @@ export function AuthModal() {
         {/* Header */}
         <div className="px-6 pt-6 pb-4 flex items-center justify-between border-b border-slate-100">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-xs">
-              <Sparkles className="w-4 h-4" />
-            </div>
+            <FlowCraftLogo size="sm" />
             <div>
               <h3 className="text-base font-bold text-slate-900">
                 {isLogin ? 'Sign In to FlowCraft' : 'Create FlowCraft Account'}

@@ -1,7 +1,8 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import {
   Sparkles,
   Plus,
@@ -13,6 +14,7 @@ import {
   FilterX,
   CheckCircle2,
 } from 'lucide-react';
+import { useAuth } from '@/context/AuthContext';
 import { Diagram, DiagramCategory } from '@/types/diagram';
 import {
   getDiagrams,
@@ -29,6 +31,7 @@ import { DeleteConfirmModal } from '@/components/dashboard/DeleteConfirmModal';
 
 export default function DashboardPage() {
   const router = useRouter();
+  const { user, openLoginModal } = useAuth();
   const [diagrams, setDiagrams] = useState<Diagram[]>([]);
   const [isLoaded, setIsLoaded] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -45,11 +48,11 @@ export default function DashboardPage() {
     }, 3000);
   };
 
-  const loadData = () => {
-    const list = getDiagrams();
+  const loadData = useCallback(() => {
+    const list = getDiagrams(user?.id);
     setDiagrams(list);
     setIsLoaded(true);
-  };
+  }, [user?.id]);
 
   useEffect(() => {
     loadData();
@@ -62,7 +65,7 @@ export default function DashboardPage() {
     return () => {
       window.removeEventListener('flowcraft:storage-update', handleStorageUpdate);
     };
-  }, []);
+  }, [loadData]);
 
   // Category counts
   const counts = useMemo(() => {
@@ -89,7 +92,27 @@ export default function DashboardPage() {
     });
   }, [diagrams, selectedCategory, searchQuery]);
 
+  // Count user-owned diagrams (excluding sample templates)
+  const userOwnedCount = useMemo(() => {
+    if (!user) return 0;
+    return diagrams.filter((d) => !d.isTemplate && !d.id.startsWith('template-')).length;
+  }, [diagrams, user]);
+
+  const MAX_LIMIT = 30;
+
   // Handlers
+  const handleOpenCreateModal = () => {
+    if (!user) {
+      openLoginModal();
+      return;
+    }
+    if (userOwnedCount >= MAX_LIMIT) {
+      showToast(`Diagram limit reached (${MAX_LIMIT}/${MAX_LIMIT}). Please delete older diagrams to create new ones.`);
+      return;
+    }
+    setCreateModalOpen(true);
+  };
+
   const handleCreateFlow = (params: {
     title: string;
     description: string;
@@ -99,14 +122,26 @@ export default function DashboardPage() {
     gridType?: 'dots' | 'lines' | 'cross' | 'none';
     defaultEdgeType?: 'smoothstep' | 'bezier' | 'straight';
   }) => {
-    const newDiagram = createDiagram(params);
+    if (userOwnedCount >= MAX_LIMIT) {
+      showToast(`Diagram limit reached (${MAX_LIMIT}/${MAX_LIMIT}).`);
+      return;
+    }
+    const newDiagram = createDiagram(params, user?.id);
     setCreateModalOpen(false);
     showToast(`Created "${newDiagram.title}"`);
     router.push(`/flow/${newDiagram.id}`);
   };
 
   const handleDuplicate = (id: string) => {
-    const cloned = duplicateDiagram(id);
+    if (!user) {
+      openLoginModal();
+      return;
+    }
+    if (userOwnedCount >= MAX_LIMIT) {
+      showToast(`Diagram limit reached (${MAX_LIMIT}/${MAX_LIMIT}). Cannot duplicate.`);
+      return;
+    }
+    const cloned = duplicateDiagram(id, user?.id);
     if (cloned) {
       loadData();
       showToast(`Duplicated to "${cloned.title}"`);
@@ -115,7 +150,7 @@ export default function DashboardPage() {
 
   const handleExportJSON = (id: string) => {
     try {
-      const json = exportDiagramJSON(id);
+      const json = exportDiagramJSON(id, user?.id);
       const diagram = diagrams.find((d) => d.id === id);
       const blob = new Blob([json], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
@@ -131,11 +166,19 @@ export default function DashboardPage() {
   };
 
   const handleImportJSON = (file: File) => {
+    if (!user) {
+      openLoginModal();
+      return;
+    }
+    if (userOwnedCount >= MAX_LIMIT) {
+      showToast(`Diagram limit reached (${MAX_LIMIT}/${MAX_LIMIT}). Cannot import.`);
+      return;
+    }
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
         const text = e.target?.result as string;
-        const imported = importDiagramJSON(text);
+        const imported = importDiagramJSON(text, user?.id);
         loadData();
         showToast(`Imported "${imported.title}"`);
         router.push(`/flow/${imported.id}`);
@@ -148,7 +191,7 @@ export default function DashboardPage() {
 
   const handleDeleteConfirm = () => {
     if (diagramToDelete) {
-      deleteDiagram(diagramToDelete.id);
+      deleteDiagram(diagramToDelete.id, user?.id);
       setDiagramToDelete(null);
       loadData();
       showToast('Diagram deleted');
@@ -171,11 +214,13 @@ export default function DashboardPage() {
         onSearchChange={setSearchQuery}
         selectedCategory={selectedCategory}
         onCategoryChange={setSelectedCategory}
-        onOpenCreateModal={() => setCreateModalOpen(true)}
+        onOpenCreateModal={handleOpenCreateModal}
         onImportJSON={handleImportJSON}
         viewMode={viewMode}
         onViewModeChange={setViewMode}
         counts={counts}
+        userDiagramCount={userOwnedCount}
+        maxDiagramLimit={MAX_LIMIT}
       />
 
       {/* Main Content Area */}
@@ -196,8 +241,8 @@ export default function DashboardPage() {
           </div>
 
           <button
-            onClick={() => setCreateModalOpen(true)}
-            className="inline-flex items-center gap-2 px-4 py-2.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-all shadow-sm shadow-blue-500/20 active:scale-95 shrink-0"
+            onClick={handleOpenCreateModal}
+            className="inline-flex items-center gap-2 px-4 py-2.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-all shadow-sm shadow-blue-500/20 active:scale-95 shrink-0 cursor-pointer"
           >
             <Plus className="w-4 h-4" />
             <span>Create New Flow</span>
@@ -259,6 +304,29 @@ export default function DashboardPage() {
           </div>
         )}
       </main>
+
+      {/* Dashboard Footer */}
+      <footer className="mt-auto border-t border-slate-200 bg-white py-6 shadow-2xs">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-500">
+          <div className="flex items-center gap-2">
+            <span className="font-semibold text-slate-700">FlowCraft</span>
+            <span className="text-slate-300">•</span>
+            <span>Visual Diagram & System Design Studio</span>
+          </div>
+
+          <p className="flex items-center gap-1.5">
+            <span>a product built with love by</span>
+            <Link
+              href="https://www.shipsar.in"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-semibold text-blue-600 hover:text-blue-700 hover:underline transition-colors"
+            >
+              Shipsar Developers
+            </Link>
+          </p>
+        </div>
+      </footer>
 
       {/* Creation Modal */}
       <CreateFlowModal

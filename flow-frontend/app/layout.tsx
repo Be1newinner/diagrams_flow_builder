@@ -18,6 +18,17 @@ import { AuthModal } from "@/components/auth/AuthModal";
 export const metadata: Metadata = {
   title: "FlowCraft - Visual Diagram & System Design Builder",
   description: "Create beautiful system design, flowcharts, and ER diagrams with React Flow in light mode.",
+  icons: {
+    icon: [
+      { url: '/favicon.ico', sizes: 'any' },
+      { url: '/favicon.png', type: 'image/png', sizes: '64x64' },
+      { url: '/logo-192.png', type: 'image/png', sizes: '192x192' },
+    ],
+    apple: [
+      { url: '/apple-icon.png', sizes: '180x180', type: 'image/png' },
+    ],
+    shortcut: '/favicon.ico',
+  },
 };
 
 export default function RootLayout({

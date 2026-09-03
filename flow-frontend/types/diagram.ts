@@ -80,4 +80,6 @@ export interface Diagram {
   settings: CanvasSettings;
   createdAt: string;
   updatedAt: string;
+  userId?: string;      // Owner user ID (or 'system' for templates)
+  isTemplate?: boolean; // true for built-in sample templates
 }

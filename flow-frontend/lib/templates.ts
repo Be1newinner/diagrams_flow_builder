@@ -15,6 +15,8 @@ export const STARTER_TEMPLATES: Diagram[] = [
     },
     createdAt: new Date(Date.now() - 3600000 * 24 * 2).toISOString(),
     updatedAt: new Date(Date.now() - 3600000 * 3).toISOString(),
+    isTemplate: true,
+    userId: 'system',
     nodes: [
       {
         id: 'node-client-web',
@@ -224,6 +226,8 @@ export const STARTER_TEMPLATES: Diagram[] = [
     },
     createdAt: new Date(Date.now() - 3600000 * 48).toISOString(),
     updatedAt: new Date(Date.now() - 3600000 * 8).toISOString(),
+    isTemplate: true,
+    userId: 'system',
     nodes: [
       {
         id: 'fc-1',
@@ -423,6 +427,8 @@ export const STARTER_TEMPLATES: Diagram[] = [
     },
     createdAt: new Date(Date.now() - 3600000 * 72).toISOString(),
     updatedAt: new Date(Date.now() - 3600000 * 12).toISOString(),
+    isTemplate: true,
+    userId: 'system',
     nodes: [
       {
         id: 'er-users',

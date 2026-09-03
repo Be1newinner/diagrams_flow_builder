@@ -51,6 +51,20 @@ export function generateRefreshToken(user: { id: string }): string {
   });
 }
 
+// Long-lived MCP API Token for AI client integrations (1 Year validity)
+export function generateMcpToken(user: { id: string; email: string; name: string }): string {
+  const payload: AccessTokenPayload = {
+    userId: user.id,
+    email: user.email,
+    name: user.name,
+    type: 'access',
+  };
+
+  return jwt.sign(payload, ACCESS_SECRET, {
+    expiresIn: '365d',
+  });
+}
+
 // Token Verification
 export function verifyAccessToken(token: string): AccessTokenPayload | null {
   try {
@@ -122,4 +136,51 @@ export async function getAuthCookies(): Promise<{
     accessToken: cookieStore.get(ACCESS_COOKIE_NAME)?.value,
     refreshToken: cookieStore.get(REFRESH_COOKIE_NAME)?.value,
   };
+}
+
+export async function resolveAuthUserId(request?: Request): Promise<string | null> {
+  try {
+    // 1. Check Authorization header
+    if (request) {
+      const authHeader = request.headers.get('authorization');
+      if (authHeader?.startsWith('Bearer ')) {
+        const token = authHeader.substring(7);
+        const payload = verifyAccessToken(token);
+        if (payload?.userId) return payload.userId;
+      }
+
+      // Check request Cookie header directly (crucial for fetch from client components)
+      const cookieHeader = request.headers.get('cookie');
+      if (cookieHeader) {
+        const matchAccess = cookieHeader.match(new RegExp(`${ACCESS_COOKIE_NAME}=([^;]+)`));
+        if (matchAccess?.[1]) {
+          const payload = verifyAccessToken(matchAccess[1]);
+          if (payload?.userId) return payload.userId;
+        }
+        const matchRefresh = cookieHeader.match(new RegExp(`${REFRESH_COOKIE_NAME}=([^;]+)`));
+        if (matchRefresh?.[1]) {
+          const payload = verifyRefreshToken(matchRefresh[1]);
+          if (payload?.userId) return payload.userId;
+        }
+      }
+    }
+
+    // 2. Check Next.js cookie store
+    try {
+      const authCookies = await getAuthCookies();
+      if (authCookies.accessToken) {
+        const payload = verifyAccessToken(authCookies.accessToken);
+        if (payload?.userId) return payload.userId;
+      }
+
+      if (authCookies.refreshToken) {
+        const payload = verifyRefreshToken(authCookies.refreshToken);
+        if (payload?.userId) return payload.userId;
+      }
+    } catch {}
+
+    return null;
+  } catch {
+    return null;
+  }
 }
