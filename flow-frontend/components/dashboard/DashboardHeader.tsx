@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useRef } from 'react';
+import Link from 'next/link';
 import {
   Plus,
   Search,
@@ -12,7 +13,12 @@ import {
   Sparkles,
   LayoutGrid,
   List,
+  LogIn,
+  LogOut,
+  User as UserIcon,
+  Terminal,
 } from 'lucide-react';
+import { useAuth } from '@/context/AuthContext';
 import { DiagramCategory } from '@/types/diagram';
 
 interface DashboardHeaderProps {
@@ -43,6 +49,7 @@ export function DashboardHeader({
   onViewModeChange,
   counts,
 }: DashboardHeaderProps) {
+  const { user, logout, openLoginModal, openRegisterModal } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const categories: { id: string; label: string; icon: React.ReactNode; count: number }[] = [
@@ -58,6 +65,15 @@ export function DashboardHeader({
       onImportJSON(file);
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
+  };
+
+  const getInitials = (name: string) => {
+    return name
+      .split(' ')
+      .map((part) => part[0])
+      .join('')
+      .toUpperCase()
+      .substring(0, 2);
   };
 
   return (
@@ -83,7 +99,7 @@ export function DashboardHeader({
             </div>
           </div>
 
-          {/* Action Buttons */}
+          {/* Action Buttons & Auth */}
           <div className="flex items-center gap-2.5">
             <input
               type="file"
@@ -94,20 +110,75 @@ export function DashboardHeader({
             />
             <button
               onClick={() => fileInputRef.current?.click()}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors shadow-xs"
+              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors shadow-xs cursor-pointer"
               title="Import diagram from JSON file"
             >
               <UploadCloud className="w-4 h-4 text-slate-500" />
-              <span>Import JSON</span>
+              <span>Import</span>
             </button>
+
+            <Link
+              href="/mcp-config"
+              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 hover:text-blue-600 rounded-lg transition-colors shadow-xs cursor-pointer"
+              title="MCP Server Configuration & AI Connection"
+            >
+              <Terminal className="w-3.5 h-3.5 text-blue-600" />
+              <span>MCP Config</span>
+            </Link>
 
             <button
               onClick={onOpenCreateModal}
-              className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 active:bg-blue-800 rounded-lg transition-colors shadow-xs shadow-blue-500/20"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 active:bg-blue-800 rounded-lg transition-colors shadow-xs shadow-blue-500/20 cursor-pointer"
             >
               <Plus className="w-4 h-4" />
               <span>New Flow</span>
             </button>
+
+            {/* Divider */}
+            <div className="h-6 w-px bg-slate-200 mx-1 hidden sm:block" />
+
+            {/* Authentication State */}
+            {user ? (
+              <div className="flex items-center gap-2 pl-1">
+                <div className="flex items-center gap-2 px-2.5 py-1 bg-slate-50 border border-slate-200 rounded-lg">
+                  <div className="w-6 h-6 rounded-full bg-blue-600 text-white flex items-center justify-center text-[10px] font-bold">
+                    {getInitials(user.name)}
+                  </div>
+                  <div className="flex flex-col text-left">
+                    <span className="text-xs font-semibold text-slate-800 leading-tight max-w-[110px] truncate">
+                      {user.name}
+                    </span>
+                    <span className="text-[10px] text-slate-400 leading-tight max-w-[110px] truncate">
+                      {user.email}
+                    </span>
+                  </div>
+                </div>
+
+                <button
+                  onClick={logout}
+                  className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                  title="Sign Out"
+                >
+                  <LogOut className="w-4 h-4" />
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1.5 pl-1">
+                <button
+                  onClick={openLoginModal}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 hover:text-blue-600 hover:bg-blue-50/50 border border-slate-200 rounded-lg transition-colors cursor-pointer"
+                >
+                  <LogIn className="w-3.5 h-3.5 text-slate-400" />
+                  <span>Sign In</span>
+                </button>
+                <button
+                  onClick={openRegisterModal}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100/70 border border-blue-200 rounded-lg transition-colors cursor-pointer"
+                >
+                  <span>Register</span>
+                </button>
+              </div>
+            )}
           </div>
         </div>
 

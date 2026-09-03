@@ -2,7 +2,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
-import { getAllDiagrams, getDiagramById, createDiagram, updateDiagram, deleteDiagram, duplicateDiagram, addNodeToDiagram, updateNodeInDiagram, deleteNodeFromDiagram, addEdgeToDiagram, updateEdgeInDiagram, deleteEdgeFromDiagram, batchAddElements, getStorageFilePath, } from './storage.js';
+import { getAllDiagrams, getDiagramById, createDiagram, updateDiagram, deleteDiagram, duplicateDiagram, addNodeToDiagram, updateNodeInDiagram, deleteNodeFromDiagram, addEdgeToDiagram, updateEdgeInDiagram, deleteEdgeFromDiagram, batchAddElements, getStorageFilePath, getEditorUrl, getAppUrl, } from './storage.js';
 import { tidyLayout } from './layout.js';
 const server = new McpServer({
     name: 'flowcraft-mcp-server',
@@ -12,7 +12,7 @@ const server = new McpServer({
 // 1. DIAGRAM CRUD TOOLS
 // ==========================================
 // Tool: list_diagrams
-server.tool('list_diagrams', 'List all diagrams in FlowCraft with summary metadata (ID, title, category, node count, edge count, updatedAt).', {
+server.tool('list_diagrams', 'List all diagrams in FlowCraft with summary metadata (ID, title, category, node count, edge count, updatedAt, live URL).', {
     category: z.enum(['system-design', 'flowchart', 'er-diagram', 'general']).optional().describe('Filter by category'),
     search: z.string().optional().describe('Search query matching title, description or tags'),
 }, async ({ category, search }) => {
@@ -35,7 +35,7 @@ server.tool('list_diagrams', 'List all diagrams in FlowCraft with summary metada
         nodeCount: d.nodes.length,
         edgeCount: d.edges.length,
         updatedAt: d.updatedAt,
-        url: `http://localhost:3000/flow/${d.id}`,
+        url: getEditorUrl(d.id),
     }));
     return {
         content: [
@@ -43,6 +43,7 @@ server.tool('list_diagrams', 'List all diagrams in FlowCraft with summary metada
                 type: 'text',
                 text: JSON.stringify({
                     total: summary.length,
+                    appUrl: getAppUrl(),
                     storageBackend: getStorageFilePath(),
                     diagrams: summary,
                 }, null, 2),
@@ -76,7 +77,7 @@ server.tool('get_diagram', 'Retrieve full diagram details by ID, including all n
                     edges: diagram.edges,
                     createdAt: diagram.createdAt,
                     updatedAt: diagram.updatedAt,
-                    editorUrl: `http://localhost:3000/flow/${diagram.id}`,
+                    editorUrl: getEditorUrl(diagram.id),
                 }, null, 2),
             },
         ],
@@ -99,12 +100,12 @@ server.tool('create_diagram', 'Create a new visual diagram in FlowCraft with opt
                 type: 'text',
                 text: JSON.stringify({
                     success: true,
-                    message: `Created diagram "${created.title}" successfully.`,
+                    message: `Created diagram "${created.title}" successfully on ${getAppUrl()}.`,
                     diagramId: created.id,
                     category: created.category,
                     nodeCount: created.nodes.length,
                     edgeCount: created.edges.length,
-                    editorUrl: `http://localhost:3000/flow/${created.id}`,
+                    editorUrl: getEditorUrl(created.id),
                 }, null, 2),
             },
         ],
@@ -145,7 +146,7 @@ server.tool('update_diagram', 'Update diagram metadata (title, description, cate
         content: [
             {
                 type: 'text',
-                text: JSON.stringify({ success: true, message: 'Diagram updated.', diagram: updated }, null, 2),
+                text: JSON.stringify({ success: true, message: 'Diagram updated.', diagram: updated, editorUrl: getEditorUrl(diagramId) }, null, 2),
             },
         ],
     };
@@ -166,7 +167,7 @@ server.tool('duplicate_diagram', 'Duplicate / clone an existing diagram to a new
                     success: true,
                     message: `Duplicated diagram to "${cloned.title}"`,
                     newDiagramId: cloned.id,
-                    editorUrl: `http://localhost:3000/flow/${cloned.id}`,
+                    editorUrl: getEditorUrl(cloned.id),
                 }, null, 2),
             },
         ],
@@ -206,6 +207,7 @@ server.tool('tidy_diagram', 'Automatically organize and align all nodes in a dia
                 text: JSON.stringify({
                     success: true,
                     message: `Auto-arranged ${arrangedNodes.length} nodes in diagram "${diagram.title}".`,
+                    editorUrl: getEditorUrl(diagramId),
                     nodes: arrangedNodes.map((n) => ({ id: n.id, title: n.data.title || n.data.label || n.data.tableName, position: n.position })),
                 }, null, 2),
             },
@@ -311,6 +313,7 @@ server.tool('add_node', 'Add a new node to a diagram. Supports system nodes, flo
                     success: true,
                     message: `Added node "${newNode.id}" (${params.type}) to diagram "${params.diagramId}".`,
                     node: newNode,
+                    editorUrl: getEditorUrl(params.diagramId),
                 }, null, 2),
             },
         ],
@@ -334,7 +337,7 @@ server.tool('update_node', "Update an existing node's data or position (change t
         content: [
             {
                 type: 'text',
-                text: JSON.stringify({ success: true, message: `Updated node "${nodeId}".`, node: updated }, null, 2),
+                text: JSON.stringify({ success: true, message: `Updated node "${nodeId}".`, node: updated, editorUrl: getEditorUrl(diagramId) }, null, 2),
             },
         ],
     };
@@ -352,7 +355,7 @@ server.tool('delete_node', 'Delete a node from a diagram (automatically deletes 
         content: [
             {
                 type: 'text',
-                text: JSON.stringify({ success: true, message: `Node "${nodeId}" and connected edges removed.` }, null, 2),
+                text: JSON.stringify({ success: true, message: `Node "${nodeId}" and connected edges removed.`, editorUrl: getEditorUrl(diagramId) }, null, 2),
             },
         ],
     };
@@ -383,7 +386,7 @@ server.tool('add_edge', 'Connect two nodes in a diagram with a directional conne
             content: [
                 {
                     type: 'text',
-                    text: JSON.stringify({ success: true, message: `Connected "${params.source}" -> "${params.target}".`, edge }, null, 2),
+                    text: JSON.stringify({ success: true, message: `Connected "${params.source}" -> "${params.target}".`, edge, editorUrl: getEditorUrl(params.diagramId) }, null, 2),
                 },
             ],
         };
@@ -410,7 +413,7 @@ server.tool('update_edge', "Update an existing edge's label, curve style, animat
         content: [
             {
                 type: 'text',
-                text: JSON.stringify({ success: true, message: `Edge "${edgeId}" updated.`, edge: updated }, null, 2),
+                text: JSON.stringify({ success: true, message: `Edge "${edgeId}" updated.`, edge: updated, editorUrl: getEditorUrl(diagramId) }, null, 2),
             },
         ],
     };
@@ -428,7 +431,7 @@ server.tool('delete_edge', 'Delete a connection edge between nodes.', {
         content: [
             {
                 type: 'text',
-                text: JSON.stringify({ success: true, message: `Edge "${edgeId}" deleted.` }, null, 2),
+                text: JSON.stringify({ success: true, message: `Edge "${edgeId}" deleted.`, editorUrl: getEditorUrl(diagramId) }, null, 2),
             },
         ],
     };
@@ -497,7 +500,7 @@ server.tool('batch_add_elements', 'Add multiple nodes and edges to a diagram in 
                     message: `Batch added ${nodes.length} nodes and ${(edges || []).length} edges to diagram "${diagram.title}".`,
                     totalNodes: updatedDiagram?.nodes.length,
                     totalEdges: updatedDiagram?.edges.length,
-                    editorUrl: `http://localhost:3000/flow/${diagramId}`,
+                    editorUrl: getEditorUrl(diagramId),
                 }, null, 2),
             },
         ],
@@ -508,7 +511,8 @@ async function run() {
     const transport = new StdioServerTransport();
     await server.connect(transport);
     console.error('[FlowCraft MCP Server] Running and ready on stdio transport.');
-    console.error(`[FlowCraft MCP Server] Diagrams data store: ${getStorageFilePath()}`);
+    console.error(`[FlowCraft MCP Server] Connected to: ${getAppUrl()}`);
+    console.error(`[FlowCraft MCP Server] Storage backend: ${getStorageFilePath()}`);
 }
 run().catch((err) => {
     console.error('[FlowCraft MCP Server] Fatal error starting server:', err);

@@ -4,6 +4,16 @@ import { fileURLToPath } from 'url';
 import { MongoClient } from 'mongodb';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+// Live Vercel Application Configuration
+export const DEFAULT_APP_URL = 'https://diagrams-flow-builder.vercel.app';
+export const APP_URL = process.env.FLOW_APP_URL || DEFAULT_APP_URL;
+export const API_URL = process.env.FLOW_API_URL || `${APP_URL}/api/diagrams`;
+export function getAppUrl() {
+    return APP_URL;
+}
+export function getEditorUrl(id) {
+    return `${APP_URL}/flow/${id}`;
+}
 // Shared File Fallback Path
 const DATA_PATH = process.env.FLOW_DATA_PATH || path.resolve(__dirname, '../../data/diagrams.json');
 // MongoDB Atlas Configuration
@@ -16,7 +26,6 @@ async function getMongoCollection() {
         if (!mongoClient) {
             mongoClient = new MongoClient(MONGO_URI);
             await mongoClient.connect();
-            console.error('[FlowCraft MCP] Connected to MongoDB Atlas.');
         }
         const db = mongoClient.db('flowcraft');
         return db.collection('diagrams');
@@ -27,10 +36,7 @@ async function getMongoCollection() {
     }
 }
 export function getStorageFilePath() {
-    if (MONGO_URI) {
-        return `MongoDB Atlas (flowcraft.diagrams) [Fallback: ${DATA_PATH}]`;
-    }
-    return DATA_PATH;
+    return `Live Vercel (${API_URL}) & MongoDB Atlas [Fallback: ${DATA_PATH}]`;
 }
 // File Helpers
 function ensureDataFile() {
@@ -86,6 +92,22 @@ function deleteFileDiagram(id) {
 }
 // ----------------- MAIN ASYNC METHODS -----------------
 export async function getAllDiagrams() {
+    // 1. Try Live Vercel API first
+    if (API_URL) {
+        try {
+            const res = await fetch(API_URL);
+            if (res.ok) {
+                const data = await res.json();
+                if (Array.isArray(data)) {
+                    return data.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+                }
+            }
+        }
+        catch (err) {
+            console.error('[FlowCraft MCP] Vercel API fetch error, trying MongoDB:', err);
+        }
+    }
+    // 2. Try MongoDB Atlas direct
     const collection = await getMongoCollection();
     if (collection) {
         try {
@@ -96,10 +118,24 @@ export async function getAllDiagrams() {
             console.error('[FlowCraft MCP] Error fetching from MongoDB:', err);
         }
     }
+    // 3. Fallback to local file
     const list = getFileDiagrams();
     return list.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
 }
 export async function getDiagramById(id) {
+    // 1. Try Live Vercel API
+    if (API_URL) {
+        try {
+            const res = await fetch(`${API_URL}/${id}`);
+            if (res.ok) {
+                return (await res.json());
+            }
+        }
+        catch (err) {
+            // try fallback
+        }
+    }
+    // 2. Try MongoDB
     const collection = await getMongoCollection();
     if (collection) {
         try {
@@ -110,7 +146,7 @@ export async function getDiagramById(id) {
             }
         }
         catch (err) {
-            console.error('[FlowCraft MCP] Error getting diagram by id from MongoDB:', err);
+            console.error('[FlowCraft MCP] MongoDB error:', err);
         }
     }
     const list = getFileDiagrams();
@@ -121,13 +157,36 @@ export async function saveDiagram(diagram) {
         ...diagram,
         updatedAt: new Date().toISOString(),
     };
+    // 1. Save to Live Vercel API
+    if (API_URL) {
+        try {
+            await fetch(`${API_URL}/${updated.id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(updated),
+            }).then(async (res) => {
+                if (!res.ok) {
+                    // If 404, create
+                    await fetch(API_URL, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(updated),
+                    });
+                }
+            });
+        }
+        catch (err) {
+            console.error('[FlowCraft MCP] Vercel API save error:', err);
+        }
+    }
+    // 2. Also save to MongoDB Atlas directly if connected
     const collection = await getMongoCollection();
     if (collection) {
         try {
             await collection.updateOne({ id: updated.id }, { $set: updated }, { upsert: true });
         }
         catch (err) {
-            console.error('[FlowCraft MCP] Error saving to MongoDB:', err);
+            console.error('[FlowCraft MCP] MongoDB save error:', err);
         }
     }
     saveFileDiagram(updated);
@@ -235,7 +294,7 @@ export async function createDiagram(params) {
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
     };
-    return saveDiagram(diagram);
+    return await saveDiagram(diagram);
 }
 export async function updateDiagram(id, patch) {
     const existing = await getDiagramById(id);
@@ -247,9 +306,19 @@ export async function updateDiagram(id, patch) {
         id,
         updatedAt: new Date().toISOString()
     };
-    return saveDiagram(updated);
+    return await saveDiagram(updated);
 }
 export async function deleteDiagram(id) {
+    // 1. Delete on Vercel API
+    if (API_URL) {
+        try {
+            await fetch(`${API_URL}/${id}`, { method: 'DELETE' });
+        }
+        catch (err) {
+            console.error('[FlowCraft MCP] Vercel API delete error:', err);
+        }
+    }
+    // 2. Delete on MongoDB Atlas
     let deletedFromMongo = false;
     const collection = await getMongoCollection();
     if (collection) {
@@ -276,7 +345,7 @@ export async function duplicateDiagram(id) {
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
     };
-    return saveDiagram(cloned);
+    return await saveDiagram(cloned);
 }
 // ----------------- NODE CRUD -----------------
 export async function addNodeToDiagram(diagramId, node) {
