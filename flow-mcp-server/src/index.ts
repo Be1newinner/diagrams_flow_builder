@@ -40,7 +40,7 @@ server.tool(
     search: z.string().optional().describe('Search query matching title, description or tags'),
   },
   async ({ category, search }) => {
-    let diagrams = getAllDiagrams();
+    let diagrams = await getAllDiagrams();
 
     if (category) {
       diagrams = diagrams.filter((d) => d.category === category);
@@ -75,7 +75,7 @@ server.tool(
           text: JSON.stringify(
             {
               total: summary.length,
-              storagePath: getStorageFilePath(),
+              storageBackend: getStorageFilePath(),
               diagrams: summary,
             },
             null,
@@ -95,7 +95,7 @@ server.tool(
     diagramId: z.string().describe('The unique ID of the diagram (e.g. "template-microservices" or "flow_123456")'),
   },
   async ({ diagramId }) => {
-    const diagram = getDiagramById(diagramId);
+    const diagram = await getDiagramById(diagramId);
     if (!diagram) {
       return {
         isError: true,
@@ -144,7 +144,7 @@ server.tool(
     defaultEdgeType: z.enum(['smoothstep', 'bezier', 'straight']).optional().default('smoothstep').describe('Default connection curve'),
   },
   async (params) => {
-    const created = createDiagram(params);
+    const created = await createDiagram(params);
     return {
       content: [
         {
@@ -182,7 +182,7 @@ server.tool(
     defaultEdgeType: z.enum(['smoothstep', 'bezier', 'straight']).optional().describe('Default edge style'),
   },
   async ({ diagramId, title, description, category, tags, gridType, defaultEdgeType }) => {
-    const existing = getDiagramById(diagramId);
+    const existing = await getDiagramById(diagramId);
     if (!existing) {
       return { isError: true, content: [{ type: 'text', text: `Diagram "${diagramId}" not found.` }] };
     }
@@ -200,7 +200,7 @@ server.tool(
       };
     }
 
-    const updated = updateDiagram(diagramId, patch);
+    const updated = await updateDiagram(diagramId, patch);
     return {
       content: [
         {
@@ -220,7 +220,7 @@ server.tool(
     diagramId: z.string().describe('The diagram ID to clone'),
   },
   async ({ diagramId }) => {
-    const cloned = duplicateDiagram(diagramId);
+    const cloned = await duplicateDiagram(diagramId);
     if (!cloned) {
       return { isError: true, content: [{ type: 'text', text: `Failed to clone diagram "${diagramId}".` }] };
     }
@@ -252,7 +252,7 @@ server.tool(
     diagramId: z.string().describe('The diagram ID to delete'),
   },
   async ({ diagramId }) => {
-    const deleted = deleteDiagram(diagramId);
+    const deleted = await deleteDiagram(diagramId);
     if (!deleted) {
       return { isError: true, content: [{ type: 'text', text: `Diagram "${diagramId}" not found or delete failed.` }] };
     }
@@ -275,13 +275,13 @@ server.tool(
     diagramId: z.string().describe('The diagram ID to arrange'),
   },
   async ({ diagramId }) => {
-    const diagram = getDiagramById(diagramId);
+    const diagram = await getDiagramById(diagramId);
     if (!diagram) {
       return { isError: true, content: [{ type: 'text', text: `Diagram "${diagramId}" not found.` }] };
     }
 
     const arrangedNodes = tidyLayout(diagram.nodes, diagram.edges);
-    const updated = updateDiagram(diagramId, { nodes: arrangedNodes });
+    const updated = await updateDiagram(diagramId, { nodes: arrangedNodes });
 
     return {
       content: [
@@ -394,7 +394,7 @@ server.tool(
       };
     }
 
-    const newNode = addNodeToDiagram(params.diagramId, {
+    const newNode = await addNodeToDiagram(params.diagramId, {
       id: params.nodeId,
       type: params.type,
       position: params.position,
@@ -435,7 +435,7 @@ server.tool(
     data: z.record(z.any()).optional().describe('Key-value pairs to merge into node data (e.g. { title: "New Title", status: "Port 9090", themeColor: "emerald" })'),
   },
   async ({ diagramId, nodeId, position, data }) => {
-    const updated = updateNodeInDiagram(diagramId, nodeId, { position, data });
+    const updated = await updateNodeInDiagram(diagramId, nodeId, { position, data });
     if (!updated) {
       return {
         isError: true,
@@ -463,7 +463,7 @@ server.tool(
     nodeId: z.string().describe('The node ID to delete'),
   },
   async ({ diagramId, nodeId }) => {
-    const deleted = deleteNodeFromDiagram(diagramId, nodeId);
+    const deleted = await deleteNodeFromDiagram(diagramId, nodeId);
     if (!deleted) {
       return { isError: true, content: [{ type: 'text', text: `Node "${nodeId}" not found in diagram "${diagramId}".` }] };
     }
@@ -502,7 +502,7 @@ server.tool(
   },
   async (params) => {
     try {
-      const edge = addEdgeToDiagram(params.diagramId, params);
+      const edge = await addEdgeToDiagram(params.diagramId, params);
       if (!edge) {
         return { isError: true, content: [{ type: 'text', text: `Diagram "${params.diagramId}" not found.` }] };
       }
@@ -534,7 +534,7 @@ server.tool(
     strokeStyle: z.enum(['solid', 'dashed', 'dotted']).optional().describe('Line stroke pattern'),
   },
   async ({ diagramId, edgeId, ...patch }) => {
-    const updated = updateEdgeInDiagram(diagramId, edgeId, patch);
+    const updated = await updateEdgeInDiagram(diagramId, edgeId, patch);
     if (!updated) {
       return { isError: true, content: [{ type: 'text', text: `Edge "${edgeId}" not found in diagram "${diagramId}".` }] };
     }
@@ -558,7 +558,7 @@ server.tool(
     edgeId: z.string().describe('The edge ID to delete'),
   },
   async ({ diagramId, edgeId }) => {
-    const deleted = deleteEdgeFromDiagram(diagramId, edgeId);
+    const deleted = await deleteEdgeFromDiagram(diagramId, edgeId);
     if (!deleted) {
       return { isError: true, content: [{ type: 'text', text: `Edge "${edgeId}" not found in diagram "${diagramId}".` }] };
     }
@@ -605,7 +605,7 @@ server.tool(
     autoLayout: z.boolean().optional().default(true).describe('If true, automatically computes clean non-overlapping coordinates for all nodes'),
   },
   async ({ diagramId, nodes, edges, autoLayout }) => {
-    const diagram = getDiagramById(diagramId);
+    const diagram = await getDiagramById(diagramId);
     if (!diagram) {
       return { isError: true, content: [{ type: 'text', text: `Diagram "${diagramId}" not found.` }] };
     }
@@ -634,12 +634,12 @@ server.tool(
       const allNodes = [...diagram.nodes, ...preparedNodes];
       const allEdges = [...diagram.edges, ...preparedEdges];
       const tidied = tidyLayout(allNodes, allEdges);
-      updateDiagram(diagramId, { nodes: tidied, edges: allEdges });
+      await updateDiagram(diagramId, { nodes: tidied, edges: allEdges });
     } else {
-      batchAddElements(diagramId, preparedNodes, preparedEdges);
+      await batchAddElements(diagramId, preparedNodes, preparedEdges);
     }
 
-    const updatedDiagram = getDiagramById(diagramId);
+    const updatedDiagram = await getDiagramById(diagramId);
 
     return {
       content: [

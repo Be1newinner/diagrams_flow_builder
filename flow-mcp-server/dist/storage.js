@@ -1,60 +1,139 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { MongoClient } from 'mongodb';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-// Path to shared data/diagrams.json
+// Shared File Fallback Path
 const DATA_PATH = process.env.FLOW_DATA_PATH || path.resolve(__dirname, '../../data/diagrams.json');
+// MongoDB Atlas Configuration
+const MONGO_URI = process.env.MONGODB_URI;
+let mongoClient = null;
+async function getMongoCollection() {
+    if (!MONGO_URI)
+        return null;
+    try {
+        if (!mongoClient) {
+            mongoClient = new MongoClient(MONGO_URI);
+            await mongoClient.connect();
+            console.error('[FlowCraft MCP] Connected to MongoDB Atlas.');
+        }
+        const db = mongoClient.db('flowcraft');
+        return db.collection('diagrams');
+    }
+    catch (err) {
+        console.error('[FlowCraft MCP] MongoDB connection error:', err?.message || err);
+        return null;
+    }
+}
 export function getStorageFilePath() {
+    if (MONGO_URI) {
+        return `MongoDB Atlas (flowcraft.diagrams) [Fallback: ${DATA_PATH}]`;
+    }
     return DATA_PATH;
 }
+// File Helpers
 function ensureDataFile() {
     const dir = path.dirname(DATA_PATH);
-    if (!fs.existsSync(dir)) {
+    if (!fs.existsSync(dir))
         fs.mkdirSync(dir, { recursive: true });
-    }
-    if (!fs.existsSync(DATA_PATH)) {
+    if (!fs.existsSync(DATA_PATH))
         fs.writeFileSync(DATA_PATH, JSON.stringify([], null, 2), 'utf-8');
-    }
 }
-export function getAllDiagrams() {
+function getFileDiagrams() {
     try {
         ensureDataFile();
         const raw = fs.readFileSync(DATA_PATH, 'utf-8');
         const parsed = JSON.parse(raw);
-        if (!Array.isArray(parsed))
-            return [];
-        return parsed.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+        return Array.isArray(parsed) ? parsed : [];
     }
-    catch (error) {
-        console.error('[FlowCraft MCP] Error reading diagrams file:', error);
+    catch {
         return [];
     }
 }
-export function getDiagramById(id) {
-    const diagrams = getAllDiagrams();
-    return diagrams.find((d) => d.id === id) || null;
+function saveFileDiagram(diagram) {
+    try {
+        ensureDataFile();
+        const list = getFileDiagrams();
+        const idx = list.findIndex((d) => d.id === diagram.id);
+        let nextList;
+        if (idx >= 0) {
+            nextList = [...list];
+            nextList[idx] = diagram;
+        }
+        else {
+            nextList = [diagram, ...list];
+        }
+        fs.writeFileSync(DATA_PATH, JSON.stringify(nextList, null, 2), 'utf-8');
+    }
+    catch (err) {
+        console.error('[FlowCraft MCP] File save error:', err);
+    }
 }
-export function saveDiagram(diagram) {
-    ensureDataFile();
-    const diagrams = getAllDiagrams();
-    const index = diagrams.findIndex((d) => d.id === diagram.id);
+function deleteFileDiagram(id) {
+    try {
+        ensureDataFile();
+        const list = getFileDiagrams();
+        const filtered = list.filter((d) => d.id !== id);
+        if (filtered.length === list.length)
+            return false;
+        fs.writeFileSync(DATA_PATH, JSON.stringify(filtered, null, 2), 'utf-8');
+        return true;
+    }
+    catch {
+        return false;
+    }
+}
+// ----------------- MAIN ASYNC METHODS -----------------
+export async function getAllDiagrams() {
+    const collection = await getMongoCollection();
+    if (collection) {
+        try {
+            const docs = await collection.find({}).sort({ updatedAt: -1 }).toArray();
+            return docs.map(({ _id, ...rest }) => rest);
+        }
+        catch (err) {
+            console.error('[FlowCraft MCP] Error fetching from MongoDB:', err);
+        }
+    }
+    const list = getFileDiagrams();
+    return list.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+}
+export async function getDiagramById(id) {
+    const collection = await getMongoCollection();
+    if (collection) {
+        try {
+            const doc = await collection.findOne({ id });
+            if (doc) {
+                const { _id, ...rest } = doc;
+                return rest;
+            }
+        }
+        catch (err) {
+            console.error('[FlowCraft MCP] Error getting diagram by id from MongoDB:', err);
+        }
+    }
+    const list = getFileDiagrams();
+    return list.find((d) => d.id === id) || null;
+}
+export async function saveDiagram(diagram) {
     const updated = {
         ...diagram,
         updatedAt: new Date().toISOString(),
     };
-    let nextList;
-    if (index >= 0) {
-        nextList = [...diagrams];
-        nextList[index] = updated;
+    const collection = await getMongoCollection();
+    if (collection) {
+        try {
+            await collection.updateOne({ id: updated.id }, { $set: updated }, { upsert: true });
+        }
+        catch (err) {
+            console.error('[FlowCraft MCP] Error saving to MongoDB:', err);
+        }
     }
-    else {
-        nextList = [updated, ...diagrams];
-    }
-    fs.writeFileSync(DATA_PATH, JSON.stringify(nextList, null, 2), 'utf-8');
+    saveFileDiagram(updated);
     return updated;
 }
-export function createDiagram(params) {
+export async function createDiagram(params) {
     const newId = `flow_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     let initialNodes = [];
     let initialEdges = [];
@@ -158,8 +237,8 @@ export function createDiagram(params) {
     };
     return saveDiagram(diagram);
 }
-export function updateDiagram(id, patch) {
-    const existing = getDiagramById(id);
+export async function updateDiagram(id, patch) {
+    const existing = await getDiagramById(id);
     if (!existing)
         return null;
     const updated = {
@@ -170,17 +249,23 @@ export function updateDiagram(id, patch) {
     };
     return saveDiagram(updated);
 }
-export function deleteDiagram(id) {
-    ensureDataFile();
-    const diagrams = getAllDiagrams();
-    const filtered = diagrams.filter((d) => d.id !== id);
-    if (filtered.length === diagrams.length)
-        return false;
-    fs.writeFileSync(DATA_PATH, JSON.stringify(filtered, null, 2), 'utf-8');
-    return true;
+export async function deleteDiagram(id) {
+    let deletedFromMongo = false;
+    const collection = await getMongoCollection();
+    if (collection) {
+        try {
+            const res = await collection.deleteOne({ id });
+            deletedFromMongo = res.deletedCount > 0;
+        }
+        catch (err) {
+            console.error('[FlowCraft MCP] Error deleting from MongoDB:', err);
+        }
+    }
+    const deletedFromFile = deleteFileDiagram(id);
+    return deletedFromMongo || deletedFromFile;
 }
-export function duplicateDiagram(id) {
-    const source = getDiagramById(id);
+export async function duplicateDiagram(id) {
+    const source = await getDiagramById(id);
     if (!source)
         return null;
     const newId = `flow_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
@@ -194,8 +279,8 @@ export function duplicateDiagram(id) {
     return saveDiagram(cloned);
 }
 // ----------------- NODE CRUD -----------------
-export function addNodeToDiagram(diagramId, node) {
-    const diagram = getDiagramById(diagramId);
+export async function addNodeToDiagram(diagramId, node) {
+    const diagram = await getDiagramById(diagramId);
     if (!diagram)
         return null;
     const nodeId = node.id || `node_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
@@ -209,11 +294,11 @@ export function addNodeToDiagram(diagramId, node) {
         data: node.data || {}
     };
     diagram.nodes.push(fullNode);
-    saveDiagram(diagram);
+    await saveDiagram(diagram);
     return fullNode;
 }
-export function updateNodeInDiagram(diagramId, nodeId, patch) {
-    const diagram = getDiagramById(diagramId);
+export async function updateNodeInDiagram(diagramId, nodeId, patch) {
+    const diagram = await getDiagramById(diagramId);
     if (!diagram)
         return null;
     const index = diagram.nodes.findIndex((n) => n.id === nodeId);
@@ -227,11 +312,11 @@ export function updateNodeInDiagram(diagramId, nodeId, patch) {
         ...(patch.data ? { data: { ...existingNode.data, ...patch.data } } : {})
     };
     diagram.nodes[index] = updatedNode;
-    saveDiagram(diagram);
+    await saveDiagram(diagram);
     return updatedNode;
 }
-export function deleteNodeFromDiagram(diagramId, nodeId) {
-    const diagram = getDiagramById(diagramId);
+export async function deleteNodeFromDiagram(diagramId, nodeId) {
+    const diagram = await getDiagramById(diagramId);
     if (!diagram)
         return false;
     const nodeCountBefore = diagram.nodes.length;
@@ -239,12 +324,12 @@ export function deleteNodeFromDiagram(diagramId, nodeId) {
     if (diagram.nodes.length === nodeCountBefore)
         return false;
     diagram.edges = diagram.edges.filter((e) => e.source !== nodeId && e.target !== nodeId);
-    saveDiagram(diagram);
+    await saveDiagram(diagram);
     return true;
 }
 // ----------------- EDGE CRUD -----------------
-export function addEdgeToDiagram(diagramId, params) {
-    const diagram = getDiagramById(diagramId);
+export async function addEdgeToDiagram(diagramId, params) {
+    const diagram = await getDiagramById(diagramId);
     if (!diagram)
         return null;
     const hasSource = diagram.nodes.some((n) => n.id === params.source);
@@ -269,11 +354,11 @@ export function addEdgeToDiagram(diagramId, params) {
         }
     };
     diagram.edges.push(fullEdge);
-    saveDiagram(diagram);
+    await saveDiagram(diagram);
     return fullEdge;
 }
-export function updateEdgeInDiagram(diagramId, edgeId, patch) {
-    const diagram = getDiagramById(diagramId);
+export async function updateEdgeInDiagram(diagramId, edgeId, patch) {
+    const diagram = await getDiagramById(diagramId);
     if (!diagram)
         return null;
     const index = diagram.edges.findIndex((e) => e.id === edgeId);
@@ -288,23 +373,23 @@ export function updateEdgeInDiagram(diagramId, edgeId, patch) {
         }
     };
     diagram.edges[index] = updatedEdge;
-    saveDiagram(diagram);
+    await saveDiagram(diagram);
     return updatedEdge;
 }
-export function deleteEdgeFromDiagram(diagramId, edgeId) {
-    const diagram = getDiagramById(diagramId);
+export async function deleteEdgeFromDiagram(diagramId, edgeId) {
+    const diagram = await getDiagramById(diagramId);
     if (!diagram)
         return false;
     const edgeCountBefore = diagram.edges.length;
     diagram.edges = diagram.edges.filter((e) => e.id !== edgeId);
     if (diagram.edges.length === edgeCountBefore)
         return false;
-    saveDiagram(diagram);
+    await saveDiagram(diagram);
     return true;
 }
 // ----------------- BATCH ADD -----------------
-export function batchAddElements(diagramId, nodes, edges) {
-    const diagram = getDiagramById(diagramId);
+export async function batchAddElements(diagramId, nodes, edges) {
+    const diagram = await getDiagramById(diagramId);
     if (!diagram)
         return null;
     const existingNodeIds = new Set(diagram.nodes.map((n) => n.id));
@@ -325,6 +410,6 @@ export function batchAddElements(diagramId, nodes, edges) {
             edgesAdded++;
         }
     }
-    saveDiagram(diagram);
+    await saveDiagram(diagram);
     return { nodesAdded, edgesAdded };
 }
