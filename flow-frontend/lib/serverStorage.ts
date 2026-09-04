@@ -227,14 +227,21 @@ export async function getUserDiagramCount(userId: string): Promise<number> {
   ).length;
 }
 
-export async function saveServerDiagram(diagram: Diagram, userId: string): Promise<Diagram> {
+export async function saveServerDiagram(
+  diagram: Diagram,
+  userId: string,
+  preFetchedExisting?: Diagram | null
+): Promise<Diagram> {
   // Prevent altering system sample templates
   if (diagram.isTemplate || diagram.id.startsWith('template-')) {
     throw new Error('Cannot modify built-in sample templates. Duplicate to your account instead.');
   }
 
-  // Check if diagram is new or updating existing
-  const existing = await getServerDiagram(diagram.id, userId);
+  // Check if diagram is new or updating existing. Callers that already fetched
+  // (and access-checked) this diagram in the same request can pass it via
+  // preFetchedExisting to skip a redundant MongoDB round trip here — every
+  // node/edge mutation was doing 2 reads + 1 write per call before this.
+  const existing = preFetchedExisting !== undefined ? preFetchedExisting : await getServerDiagram(diagram.id, userId);
   if (existing) {
     // Only ADMIN can edit!
     const isAdmin =

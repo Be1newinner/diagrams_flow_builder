@@ -208,7 +208,7 @@ const handler = createMcpHandler(
         };
 
         try {
-          const saved = await saveServerDiagram(updated, userId);
+          const saved = await saveServerDiagram(updated, userId, existing);
           return jsonResult({ success: true, message: 'Diagram updated.', diagram: saved, editorUrl: getEditorUrl(diagramId) });
         } catch (err: any) {
           return errorResult(err.message || 'Failed to update diagram.');
@@ -238,7 +238,7 @@ const handler = createMcpHandler(
         };
 
         try {
-          const saved = await saveServerDiagram(cloned, userId);
+          const saved = await saveServerDiagram(cloned, userId, null);
           return jsonResult({ success: true, message: `Duplicated diagram to "${saved.title}"`, newDiagramId: saved.id, editorUrl: getEditorUrl(saved.id) });
         } catch (err: any) {
           return errorResult(err.message || 'Failed to duplicate diagram.');
@@ -273,7 +273,7 @@ const handler = createMcpHandler(
 
         const arrangedNodes = tidyLayout(diagram.nodes, diagram.edges);
         try {
-          await saveServerDiagram({ ...diagram, nodes: arrangedNodes }, userId);
+          await saveServerDiagram({ ...diagram, nodes: arrangedNodes }, userId, diagram);
           return jsonResult({
             success: true,
             message: `Auto-arranged ${arrangedNodes.length} nodes in diagram "${diagram.title}".`,
@@ -368,7 +368,7 @@ const handler = createMcpHandler(
         };
 
         try {
-          await saveServerDiagram({ ...diagram, nodes: [...diagram.nodes, newNode] }, userId);
+          await saveServerDiagram({ ...diagram, nodes: [...diagram.nodes, newNode] }, userId, diagram);
           return jsonResult({ success: true, message: `Added node "${newNode.id}" (${params.type}) to diagram "${params.diagramId}".`, node: newNode, editorUrl: getEditorUrl(params.diagramId) });
         } catch (err: any) {
           return errorResult(err.message || 'Failed to add node.');
@@ -403,7 +403,7 @@ const handler = createMcpHandler(
         nextNodes[index] = updatedNode;
 
         try {
-          await saveServerDiagram({ ...diagram, nodes: nextNodes }, userId);
+          await saveServerDiagram({ ...diagram, nodes: nextNodes }, userId, diagram);
           return jsonResult({ success: true, message: `Updated node "${nodeId}".`, node: updatedNode, editorUrl: getEditorUrl(diagramId) });
         } catch (err: any) {
           return errorResult(err.message || 'Failed to update node.');
@@ -425,7 +425,7 @@ const handler = createMcpHandler(
         const nextEdges = diagram.edges.filter((e: any) => e.source !== nodeId && e.target !== nodeId);
 
         try {
-          await saveServerDiagram({ ...diagram, nodes: nextNodes, edges: nextEdges }, userId);
+          await saveServerDiagram({ ...diagram, nodes: nextNodes, edges: nextEdges }, userId, diagram);
           return jsonResult({ success: true, message: `Node "${nodeId}" and connected edges removed.`, editorUrl: getEditorUrl(diagramId) });
         } catch (err: any) {
           return errorResult(err.message || 'Failed to delete node.');
@@ -482,7 +482,7 @@ const handler = createMcpHandler(
         };
 
         try {
-          await saveServerDiagram({ ...diagram, edges: [...diagram.edges, newEdge] }, userId);
+          await saveServerDiagram({ ...diagram, edges: [...diagram.edges, newEdge] }, userId, diagram);
           return jsonResult({ success: true, message: `Connected "${params.source}" -> "${params.target}".`, edge: newEdge, editorUrl: getEditorUrl(params.diagramId) });
         } catch (err: any) {
           return errorResult(err.message || 'Failed to add edge.');
@@ -516,7 +516,7 @@ const handler = createMcpHandler(
         nextEdges[index] = updatedEdge;
 
         try {
-          await saveServerDiagram({ ...diagram, edges: nextEdges }, userId);
+          await saveServerDiagram({ ...diagram, edges: nextEdges }, userId, diagram);
           return jsonResult({ success: true, message: `Edge "${edgeId}" updated.`, edge: updatedEdge, editorUrl: getEditorUrl(diagramId) });
         } catch (err: any) {
           return errorResult(err.message || 'Failed to update edge.');
@@ -537,7 +537,7 @@ const handler = createMcpHandler(
         if (nextEdges.length === diagram.edges.length) return errorResult(`Edge "${edgeId}" not found in diagram "${diagramId}".`);
 
         try {
-          await saveServerDiagram({ ...diagram, edges: nextEdges }, userId);
+          await saveServerDiagram({ ...diagram, edges: nextEdges }, userId, diagram);
           return jsonResult({ success: true, message: `Edge "${edgeId}" deleted.`, editorUrl: getEditorUrl(diagramId) });
         } catch (err: any) {
           return errorResult(err.message || 'Failed to delete edge.');
@@ -617,7 +617,7 @@ const handler = createMcpHandler(
             finalEdges = [...diagram.edges, ...preparedEdges.filter((e) => !existingEdgeIds.has(e.id))];
           }
 
-          await saveServerDiagram({ ...diagram, nodes: finalNodes, edges: finalEdges }, userId);
+          await saveServerDiagram({ ...diagram, nodes: finalNodes, edges: finalEdges }, userId, diagram);
           return jsonResult({
             success: true,
             message: `Batch added ${nodes.length} nodes and ${(edges || []).length} edges to diagram "${diagram.title}".`,

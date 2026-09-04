@@ -1,7 +1,14 @@
 import { MongoClient } from 'mongodb';
 
 const uri = process.env.MONGODB_URI;
-const options = {};
+// Fail fast instead of hanging near the serverless function's execution ceiling
+// when Atlas is slow/unreachable (e.g. cold start, IP allowlist issue).
+const options = {
+  serverSelectionTimeoutMS: 5000,
+  connectTimeoutMS: 5000,
+  socketTimeoutMS: 8000,
+  maxPoolSize: 10,
+};
 
 let client: MongoClient;
 let clientPromise: Promise<MongoClient>;
