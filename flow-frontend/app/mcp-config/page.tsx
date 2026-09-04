@@ -31,11 +31,12 @@ export default function McpConfigPage() {
   const [copiedToken, setCopiedToken] = useState(false);
   const [copiedConfig, setCopiedConfig] = useState(false);
   const [copiedPrompt, setCopiedPrompt] = useState<number | null>(null);
-  const [activeTab, setActiveTab] = useState<'claude' | 'cursor' | 'windsurf' | 'terminal'>('claude');
+  const [activeTab, setActiveTab] = useState<'remote' | 'claude' | 'cursor' | 'windsurf' | 'terminal'>('remote');
   const [activeOs, setActiveOs] = useState<'mac' | 'linux' | 'windows'>('linux');
 
   const liveAppUrl = 'https://diagrams-flow-builder.vercel.app';
   const liveApiUrl = `${liveAppUrl}/api/diagrams`;
+  const mcpEndpointUrl = `${liveAppUrl}/api/mcp`;
 
   useEffect(() => {
     async function fetchToken() {
@@ -76,6 +77,29 @@ export default function McpConfigPage() {
       default:
         return '~/.config/Claude/claude_desktop_config.json';
     }
+  };
+
+  const getRemoteConfig = () => {
+    return JSON.stringify(
+      {
+        mcpServers: {
+          flowcraft: {
+            type: 'http',
+            url: mcpEndpointUrl,
+            headers: {
+              Authorization: `Bearer ${token || '<your MCP token — sign in above>'}`,
+            },
+          },
+        },
+      },
+      null,
+      2
+    );
+  };
+
+  const getRemoteCliCommand = () => {
+    const tokenPart = token || '<your MCP token — sign in above>';
+    return `claude mcp add --transport http flowcraft "${mcpEndpointUrl}" \\\n  --header "Authorization: Bearer ${tokenPart}"`;
   };
 
   const getClaudeConfig = () => {
@@ -145,6 +169,8 @@ export default function McpConfigPage() {
 
   const getActiveCode = () => {
     switch (activeTab) {
+      case 'remote':
+        return getRemoteConfig();
       case 'claude':
         return getClaudeConfig();
       case 'cursor':
@@ -332,11 +358,26 @@ export default function McpConfigPage() {
           <div className="p-6 border-b border-slate-100">
             <h3 className="text-sm font-bold text-slate-900">Client Setup Configurations</h3>
             <p className="text-xs text-slate-500 mt-0.5">
-              Select your AI tool below to get the pre-configured JSON snippet.
+              FlowCraft runs as a hosted MCP server — no local install needed. Select your AI tool below.
             </p>
 
             {/* Client Tabs */}
-            <div className="flex items-center gap-2 mt-4">
+            <div className="flex items-center gap-2 mt-4 flex-wrap">
+              <button
+                onClick={() => setActiveTab('remote')}
+                className={`inline-flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-xl border transition-all cursor-pointer ${
+                  activeTab === 'remote'
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200 shadow-2xs'
+                    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                }`}
+              >
+                <ShieldCheck className="w-4 h-4" />
+                <span>Remote (HTTP)</span>
+                <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase bg-emerald-100 text-emerald-700">Recommended</span>
+              </button>
+
+              <div className="h-6 w-px bg-slate-200" />
+
               <button
                 onClick={() => setActiveTab('claude')}
                 className={`inline-flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-xl border transition-all cursor-pointer ${
@@ -346,7 +387,7 @@ export default function McpConfigPage() {
                 }`}
               >
                 <Bot className="w-4 h-4" />
-                <span>Claude Desktop</span>
+                <span>Claude Desktop (Local)</span>
               </button>
 
               <button
@@ -358,7 +399,7 @@ export default function McpConfigPage() {
                 }`}
               >
                 <Cpu className="w-4 h-4" />
-                <span>Cursor IDE</span>
+                <span>Cursor IDE (Local)</span>
               </button>
 
               <button
@@ -370,7 +411,7 @@ export default function McpConfigPage() {
                 }`}
               >
                 <Boxes className="w-4 h-4" />
-                <span>Windsurf</span>
+                <span>Windsurf (Local)</span>
               </button>
 
               <button
@@ -382,9 +423,20 @@ export default function McpConfigPage() {
                 }`}
               >
                 <Terminal className="w-4 h-4" />
-                <span>Terminal / Stdio</span>
+                <span>Terminal / Stdio (Local)</span>
               </button>
             </div>
+
+            {/* Remote endpoint summary */}
+            {activeTab === 'remote' && (
+              <div className="mt-4 pt-4 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-2 text-xs text-slate-500">
+                  <span className="font-medium">Endpoint:</span>
+                  <span className="font-mono bg-slate-50 px-2.5 py-1 rounded-md border border-slate-200">{mcpEndpointUrl}</span>
+                </div>
+                <span className="text-xs text-slate-500">No install, no local process — works from any MCP-compatible client.</span>
+              </div>
+            )}
 
             {/* OS Selector (for Claude Desktop) */}
             {activeTab === 'claude' && (
@@ -446,6 +498,12 @@ export default function McpConfigPage() {
             </button>
             <pre className="pr-24">{getActiveCode()}</pre>
           </div>
+          {activeTab === 'remote' && (
+            <div className="p-5 bg-slate-50 border-t border-slate-100">
+              <p className="text-xs font-semibold text-slate-700 mb-2">Using the Claude Code CLI instead?</p>
+              <pre className="text-xs font-mono bg-slate-950 text-slate-200 rounded-xl p-4 overflow-x-auto whitespace-pre-wrap">{getRemoteCliCommand()}</pre>
+            </div>
+          )}
         </div>
 
         {/* Section 3: Available MCP Tools */}
