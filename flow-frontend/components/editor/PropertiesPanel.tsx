@@ -38,6 +38,7 @@ interface PropertiesPanelProps {
   onDeleteEdge: (id: string) => void;
   nodeCount: number;
   edgeCount: number;
+  readOnly?: boolean;
 }
 
 const COLOR_OPTIONS = [
@@ -80,6 +81,7 @@ export function PropertiesPanel({
   onDeleteEdge,
   nodeCount,
   edgeCount,
+  readOnly = false,
 }: PropertiesPanelProps) {
   // Case 1: Node Selected
   if (selectedNode) {
@@ -105,26 +107,32 @@ export function PropertiesPanel({
             </h3>
           </div>
 
-          <div className="flex items-center gap-1">
-            <button
-              onClick={() => onDuplicateNode(selectedNode.id)}
-              className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
-              title="Duplicate node"
-            >
-              <Copy className="w-3.5 h-3.5" />
-            </button>
-            <button
-              onClick={() => onDeleteNode(selectedNode.id)}
-              className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
-              title="Delete node"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
-          </div>
+          {readOnly ? (
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+              Read-Only
+            </span>
+          ) : (
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => onDuplicateNode(selectedNode.id)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+                title="Duplicate node"
+              >
+                <Copy className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={() => onDeleteNode(selectedNode.id)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                title="Delete node"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Content Body */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-4 text-xs">
+        <fieldset disabled={readOnly} className={`flex-1 overflow-y-auto p-4 space-y-4 text-xs ${readOnly ? 'opacity-80' : ''}`}>
           {/* System Node Editor */}
           {nodeType === 'systemNode' && (
             <>
@@ -479,7 +487,7 @@ export function PropertiesPanel({
               </div>
             </>
           )}
-        </div>
+        </fieldset>
       </aside>
     );
   }
@@ -498,16 +506,22 @@ export function PropertiesPanel({
             </h3>
           </div>
 
-          <button
-            onClick={() => onDeleteEdge(selectedEdge.id)}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
-            title="Delete connection"
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-          </button>
+          {readOnly ? (
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+              Read-Only
+            </span>
+          ) : (
+            <button
+              onClick={() => onDeleteEdge(selectedEdge.id)}
+              className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+              title="Delete connection"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4 space-y-4 text-xs">
+        <fieldset disabled={readOnly} className={`flex-1 overflow-y-auto p-4 space-y-4 text-xs ${readOnly ? 'opacity-80' : ''}`}>
           <div>
             <label className="font-semibold text-slate-700 block mb-1">Connection Label</label>
             <input
@@ -578,7 +592,7 @@ export function PropertiesPanel({
               ))}
             </div>
           </div>
-        </div>
+        </fieldset>
       </aside>
     );
   }

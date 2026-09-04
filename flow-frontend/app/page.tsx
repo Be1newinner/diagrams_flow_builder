@@ -268,6 +268,7 @@ export default function DashboardPage() {
                 onDuplicate={handleDuplicate}
                 onExport={handleExportJSON}
                 onDelete={setDiagramToDelete}
+                currentUserId={user?.id}
               />
             ))}
           </div>

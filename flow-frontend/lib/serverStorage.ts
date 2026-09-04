@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { Diagram } from '@/types/diagram';
+import { Diagram, DiagramUserAccess } from '@/types/diagram';
 import { STARTER_TEMPLATES } from './templates';
 import clientPromise from './mongodb';
 
@@ -55,7 +55,26 @@ function deleteFileDiagram(id: string): boolean {
   }
 }
 
-// --- Main Exported Functions (MongoDB with File Fallback & User Isolation) ---
+// Normalizes users array on diagram to ensure exactly one ADMIN
+export function normalizeDiagramUsers(diagram: Diagram, defaultAdminId: string): DiagramUserAccess[] {
+  const existingUsers = diagram.users && diagram.users.length > 0 ? [...diagram.users] : [];
+  
+  // Find designated admin
+  const foundAdmin = existingUsers.find((u) => u.accesstype === 'ADMIN');
+  const adminId = foundAdmin?.userId || diagram.userId || defaultAdminId;
+
+  // Filter out any duplicate admin entries and convert others to VIEWER
+  const viewers = existingUsers
+    .filter((u) => u.userId !== adminId)
+    .map((u) => ({ userId: u.userId, accesstype: 'VIEWER' as const }));
+
+  return [
+    { userId: adminId, accesstype: 'ADMIN' as const },
+    ...viewers,
+  ];
+}
+
+// --- Main Exported Functions (MongoDB with File Fallback & User Access Control) ---
 
 export async function getServerDiagrams(userId?: string | null): Promise<Diagram[]> {
   // If user is not logged in, return ONLY the 3 starter sample templates
@@ -71,11 +90,12 @@ export async function getServerDiagrams(userId?: string | null): Promise<Diagram
 
       const templateIds = STARTER_TEMPLATES.map((t) => t.id);
 
-      // Query only user-owned diagrams plus system templates
+      // Query diagrams where user is owner OR listed in users[] OR is a template
       const docs = await collection
         .find({
           $or: [
             { userId: userId },
+            { 'users.userId': userId },
             { isTemplate: true },
             { id: { $in: templateIds } },
           ],
@@ -83,7 +103,13 @@ export async function getServerDiagrams(userId?: string | null): Promise<Diagram
         .sort({ updatedAt: -1 })
         .toArray();
 
-      const userDocs = docs.map(({ _id, ...rest }: any) => rest as Diagram);
+      const userDocs = docs.map(({ _id, ...rest }: any) => {
+        const d = rest as Diagram;
+        if (!d.users || d.users.length === 0) {
+          d.users = d.userId ? [{ userId: d.userId, accesstype: 'ADMIN' }] : [];
+        }
+        return d;
+      });
 
       // Ensure all 3 starter templates are present in the list
       const existingIds = new Set(userDocs.map((d) => d.id));
@@ -99,14 +125,31 @@ export async function getServerDiagrams(userId?: string | null): Promise<Diagram
 
   const list = getFileDiagrams();
   return list
-    .filter((d) => d.userId === userId || d.isTemplate || d.id.startsWith('template-'))
+    .filter(
+      (d) =>
+        d.userId === userId ||
+        d.users?.some((u) => u.userId === userId) ||
+        d.isTemplate ||
+        d.id.startsWith('template-')
+    )
+    .map((d) => {
+      if (!d.users || d.users.length === 0) {
+        d.users = d.userId ? [{ userId: d.userId, accesstype: 'ADMIN' }] : [];
+      }
+      return d;
+    })
     .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
 }
 
 export async function getServerDiagram(id: string, userId?: string | null): Promise<Diagram | null> {
   // 1. Check starter templates first (always viewable)
   const template = STARTER_TEMPLATES.find((t) => t.id === id);
-  if (template) return template;
+  if (template) {
+    return {
+      ...template,
+      users: [{ userId: 'system', accesstype: 'ADMIN' }],
+    };
+  }
 
   if (process.env.MONGODB_URI) {
     try {
@@ -119,10 +162,19 @@ export async function getServerDiagram(id: string, userId?: string | null): Prom
         if (diagram.isTemplate || diagram.id?.startsWith('template-')) {
           return diagram as Diagram;
         }
-        // User-owned diagrams are ONLY accessible by their owner
-        if (userId && diagram.userId === userId) {
+
+        // Accessible if user is owner OR user is in users[]
+        const hasAccess =
+          userId &&
+          (diagram.userId === userId || diagram.users?.some((u: DiagramUserAccess) => u.userId === userId));
+
+        if (hasAccess) {
+          if (!diagram.users || diagram.users.length === 0) {
+            diagram.users = diagram.userId ? [{ userId: diagram.userId, accesstype: 'ADMIN' }] : [];
+          }
           return diagram as Diagram;
         }
+
         // Mismatch: diagram belongs to someone else
         return null;
       }
@@ -135,7 +187,12 @@ export async function getServerDiagram(id: string, userId?: string | null): Prom
   const found = list.find((d) => d.id === id);
   if (!found) return null;
   if (found.isTemplate || found.id.startsWith('template-')) return found;
-  if (userId && found.userId === userId) return found;
+  if (userId && (found.userId === userId || found.users?.some((u) => u.userId === userId))) {
+    if (!found.users || found.users.length === 0) {
+      found.users = found.userId ? [{ userId: found.userId, accesstype: 'ADMIN' }] : [];
+    }
+    return found;
+  }
   return null;
 }
 
@@ -146,8 +203,12 @@ export async function getUserDiagramCount(userId: string): Promise<number> {
     try {
       const client = await clientPromise;
       const db = client.db('flowcraft');
+      // Count only diagrams where user is ADMIN (owner)
       const count = await db.collection('diagrams').countDocuments({
-        userId,
+        $or: [
+          { userId },
+          { users: { $elemMatch: { userId, accesstype: 'ADMIN' } } },
+        ],
         isTemplate: { $ne: true },
         id: { $not: /^template-/ },
       });
@@ -158,7 +219,12 @@ export async function getUserDiagramCount(userId: string): Promise<number> {
   }
 
   const list = getFileDiagrams();
-  return list.filter((d) => d.userId === userId && !d.isTemplate && !d.id.startsWith('template-')).length;
+  return list.filter(
+    (d) =>
+      (d.userId === userId || d.users?.some((u) => u.userId === userId && u.accesstype === 'ADMIN')) &&
+      !d.isTemplate &&
+      !d.id.startsWith('template-')
+  ).length;
 }
 
 export async function saveServerDiagram(diagram: Diagram, userId: string): Promise<Diagram> {
@@ -167,18 +233,35 @@ export async function saveServerDiagram(diagram: Diagram, userId: string): Promi
     throw new Error('Cannot modify built-in sample templates. Duplicate to your account instead.');
   }
 
-  // Check if diagram is new (not an update to an existing diagram)
+  // Check if diagram is new or updating existing
   const existing = await getServerDiagram(diagram.id, userId);
-  if (!existing) {
+  if (existing) {
+    // Only ADMIN can edit!
+    const isAdmin =
+      existing.userId === userId ||
+      existing.users?.some((u) => u.userId === userId && u.accesstype === 'ADMIN');
+
+    if (!isAdmin) {
+      throw new Error('Forbidden: Only the diagram ADMIN can edit this diagram.');
+    }
+  } else {
+    // Creating new diagram: enforce 30-diagram limit on creating ADMIN
     const currentCount = await getUserDiagramCount(userId);
     if (currentCount >= MAX_DIAGRAMS_PER_USER) {
-      throw new Error(`Diagram limit reached (${MAX_DIAGRAMS_PER_USER}/${MAX_DIAGRAMS_PER_USER}). Please delete older diagrams to create new ones.`);
+      throw new Error(
+        `Diagram limit reached (${MAX_DIAGRAMS_PER_USER}/${MAX_DIAGRAMS_PER_USER}). Please delete older diagrams to create new ones.`
+      );
     }
   }
 
+  // Enforce exactly one ADMIN and multiple VIEWERS in users[]
+  const adminId = existing?.users?.find((u) => u.accesstype === 'ADMIN')?.userId || existing?.userId || userId;
+  const finalUsers = normalizeDiagramUsers(diagram, adminId);
+
   const updated: Diagram = {
     ...diagram,
-    userId,
+    userId: adminId,
+    users: finalUsers,
     isTemplate: false,
     updatedAt: new Date().toISOString(),
   };
@@ -187,12 +270,8 @@ export async function saveServerDiagram(diagram: Diagram, userId: string): Promi
     try {
       const client = await clientPromise;
       const db = client.db('flowcraft');
-      // Upsert only if user is owner or document is new
       await db.collection('diagrams').updateOne(
-        {
-          id: updated.id,
-          $or: [{ userId: userId }, { userId: { $exists: false } }],
-        },
+        { id: updated.id },
         { $set: updated },
         { upsert: true }
       );
@@ -212,13 +291,24 @@ export async function deleteServerDiagram(id: string, userId: string): Promise<b
     return false;
   }
 
+  const existing = await getServerDiagram(id, userId);
+  if (!existing) return false;
+
+  // Only ADMIN can delete!
+  const isAdmin =
+    existing.userId === userId ||
+    existing.users?.some((u) => u.userId === userId && u.accesstype === 'ADMIN');
+
+  if (!isAdmin) {
+    throw new Error('Forbidden: Only the diagram ADMIN can delete this diagram.');
+  }
+
   let deletedFromMongo = false;
   if (process.env.MONGODB_URI) {
     try {
       const client = await clientPromise;
       const db = client.db('flowcraft');
-      // Delete ONLY if owner matches
-      const res = await db.collection('diagrams').deleteOne({ id, userId });
+      const res = await db.collection('diagrams').deleteOne({ id });
       deletedFromMongo = res.deletedCount > 0;
     } catch (err) {
       console.error('[MongoDB Error] deleteServerDiagram error:', err);

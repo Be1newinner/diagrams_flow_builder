@@ -294,9 +294,14 @@ const PALETTE_ITEMS: PaletteItem[] = [
 interface SidebarPaletteProps {
   onAddNode: (type: string, data: any) => void;
   defaultCategory?: DiagramCategory;
+  readOnly?: boolean;
 }
 
-export function SidebarPalette({ onAddNode, defaultCategory = 'system-design' }: SidebarPaletteProps) {
+export function SidebarPalette({
+  onAddNode,
+  defaultCategory = 'system-design',
+  readOnly = false,
+}: SidebarPaletteProps) {
   const [activeTab, setActiveTab] = useState<string>('all');
   const [search, setSearch] = useState<string>('');
 
@@ -362,18 +367,22 @@ export function SidebarPalette({ onAddNode, defaultCategory = 'system-design' }:
       {/* Node Palette List */}
       <div className="flex-1 overflow-y-auto p-3 space-y-2">
         <div className="text-[10px] uppercase tracking-wider font-semibold text-slate-400 px-1">
-          Drag to canvas or click to add
+          {readOnly ? 'Viewer Mode (Read-Only)' : 'Drag to canvas or click to add'}
         </div>
 
         <div className="space-y-1.5">
           {filteredItems.map((item) => (
             <div
               key={item.id}
-              draggable
-              onDragStart={(e) => onDragStart(e, item)}
-              onClick={() => onAddNode(item.nodeType, item.data)}
-              className="group p-2 rounded-xl border border-slate-200/80 bg-white hover:border-blue-400 hover:bg-blue-50/20 hover:shadow-xs transition-all cursor-grab active:cursor-grabbing flex items-center justify-between gap-2.5"
-              title="Drag onto canvas or click to add"
+              draggable={!readOnly}
+              onDragStart={(e) => !readOnly && onDragStart(e, item)}
+              onClick={() => !readOnly && onAddNode(item.nodeType, item.data)}
+              className={`group p-2 rounded-xl border border-slate-200/80 bg-white transition-all flex items-center justify-between gap-2.5 ${
+                readOnly
+                  ? 'opacity-75 cursor-default'
+                  : 'hover:border-blue-400 hover:bg-blue-50/20 hover:shadow-xs cursor-grab active:cursor-grabbing'
+              }`}
+              title={readOnly ? 'Viewer Mode: Editing disabled' : 'Drag onto canvas or click to add'}
             >
               <div className="flex items-center gap-2.5 min-w-0">
                 <div className="w-8 h-8 rounded-lg bg-slate-50 border border-slate-200/60 flex items-center justify-center shrink-0 group-hover:bg-white group-hover:scale-105 transition-all">
@@ -389,13 +398,15 @@ export function SidebarPalette({ onAddNode, defaultCategory = 'system-design' }:
                 </div>
               </div>
 
-              <button
-                type="button"
-                className="w-6 h-6 rounded-md bg-slate-100 text-slate-400 hover:bg-blue-600 hover:text-white flex items-center justify-center transition-colors opacity-0 group-hover:opacity-100 shrink-0"
-                title="Add to canvas"
-              >
-                <Plus className="w-3.5 h-3.5" />
-              </button>
+              {!readOnly && (
+                <button
+                  type="button"
+                  className="w-6 h-6 rounded-md bg-slate-100 text-slate-400 hover:bg-blue-600 hover:text-white flex items-center justify-center transition-colors opacity-0 group-hover:opacity-100 shrink-0"
+                  title="Add to canvas"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
           ))}
 
@@ -409,7 +420,9 @@ export function SidebarPalette({ onAddNode, defaultCategory = 'system-design' }:
 
       {/* Bottom Hint */}
       <div className="p-3 border-t border-slate-100 bg-slate-50/60 text-[11px] text-slate-500 flex items-center justify-between">
-        <span className="truncate">💡 Connect handles to link nodes</span>
+        <span className="truncate">
+          {readOnly ? '🔒 Read-only view (Viewer access)' : '💡 Connect handles to link nodes'}
+        </span>
       </div>
     </aside>
   );

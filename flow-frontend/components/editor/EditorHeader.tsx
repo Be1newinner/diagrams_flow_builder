@@ -53,6 +53,7 @@ interface EditorHeaderProps {
   onExportJSON: () => void;
   onImportJSON: (file: File) => void;
   onOpenAiModal?: () => void;
+  userAccessType?: 'ADMIN' | 'VIEWER' | 'TEMPLATE' | 'GUEST';
 }
 
 export function EditorHeader({
@@ -77,6 +78,7 @@ export function EditorHeader({
   onExportJSON,
   onImportJSON,
   onOpenAiModal,
+  userAccessType,
 }: EditorHeaderProps) {
   const { user, openLoginModal, logout } = useAuth();
   const [isEditingTitle, setIsEditingTitle] = useState(false);
@@ -141,9 +143,13 @@ export function EditorHeader({
             />
           ) : (
             <button
-              onClick={() => setIsEditingTitle(true)}
-              className="text-sm font-bold text-slate-800 hover:text-blue-600 hover:bg-slate-50 px-2 py-0.5 rounded transition-colors truncate max-w-[200px] md:max-w-xs text-left"
-              title="Click to rename"
+              onClick={() => {
+                if (userAccessType !== 'VIEWER') setIsEditingTitle(true);
+              }}
+              className={`text-sm font-bold text-slate-800 px-2 py-0.5 rounded transition-colors truncate max-w-[200px] md:max-w-xs text-left ${
+                userAccessType === 'VIEWER' ? 'cursor-default' : 'hover:text-blue-600 hover:bg-slate-50 cursor-pointer'
+              }`}
+              title={userAccessType === 'VIEWER' ? diagram.title : 'Click to rename'}
             >
               {diagram.title}
             </button>
@@ -163,6 +169,18 @@ export function EditorHeader({
               </>
             )}
           </div>
+
+          {/* User Access Badge */}
+          {userAccessType === 'ADMIN' && (
+            <span className="hidden sm:inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200/60">
+              Admin
+            </span>
+          )}
+          {userAccessType === 'VIEWER' && (
+            <span className="hidden sm:inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200/60">
+              Viewer
+            </span>
+          )}
         </div>
       </div>
 
@@ -209,26 +227,30 @@ export function EditorHeader({
           <Maximize2 className="w-4 h-4" />
         </button>
 
-        <div className="h-4 w-px bg-slate-200 mx-0.5" />
+        {userAccessType !== 'VIEWER' && (
+          <>
+            <div className="h-4 w-px bg-slate-200 mx-0.5" />
 
-        <button
-          onClick={onAutoLayout}
-          className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer"
-          title="Auto-arrange nodes hierarchically"
-        >
-          <Sparkles className="w-3.5 h-3.5 text-slate-500" />
-          <span>Tidy</span>
-        </button>
+            <button
+              onClick={onAutoLayout}
+              className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer"
+              title="Auto-arrange nodes hierarchically"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-slate-500" />
+              <span>Tidy</span>
+            </button>
 
-        {onOpenAiModal && (
-          <button
-            onClick={onOpenAiModal}
-            className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold text-white bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 rounded-lg shadow-xs shadow-indigo-500/20 transition-all cursor-pointer"
-            title="Ask Gemini AI to build, modify, or enhance this diagram"
-          >
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>Ask AI</span>
-          </button>
+            {onOpenAiModal && (
+              <button
+                onClick={onOpenAiModal}
+                className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold text-white bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 rounded-lg shadow-xs shadow-indigo-500/20 transition-all cursor-pointer"
+                title="Ask Gemini AI to build, modify, or enhance this diagram"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>Ask AI</span>
+              </button>
+            )}
+          </>
         )}
       </div>
 

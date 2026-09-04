@@ -19,8 +19,7 @@ import {
   OnSelectionChangeParams,
 } from '@xyflow/react';
 import { toPng, toSvg } from 'html-to-image';
-import { ArrowLeft, Loader2, Sparkles, Plus, Lock, LogIn } from 'lucide-react';
-import Link from 'next/link';
+import { ArrowLeft, Loader2, Sparkles, Plus, Lock, LogIn, Eye, CheckCircle2 } from 'lucide-react';
 
 import { useAuth } from '@/context/AuthContext';
 import { Diagram, DiagramCategory } from '@/types/diagram';
@@ -37,7 +36,7 @@ import { CustomEdge } from '@/components/edges/CustomEdge';
 import { EditorHeader } from '@/components/editor/EditorHeader';
 import { SidebarPalette } from '@/components/editor/SidebarPalette';
 import { PropertiesPanel } from '@/components/editor/PropertiesPanel';
-
+import { AiAssistantModal } from '@/components/editor/AiAssistantModal';
 const nodeTypes = {
   systemNode: SystemNode,
   flowchartNode: FlowchartNode,
@@ -71,7 +70,7 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
     initialDiagram.settings?.defaultEdgeType || 'smoothstep'
   );
 
-  // Undo/Redo history stack
+  // Access permissions: exactly 1 ADMIN can edit or delete, VIEWERS are read-only
   const [history, setHistory] = useState<{ nodes: Node[]; edges: Edge[] }[]>([]);
   const [future, setFuture] = useState<{ nodes: Node[]; edges: Edge[] }[]>([]);
   const isUndoRedoAction = useRef(false);
@@ -86,12 +85,10 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
     setFuture([]);
   }, []);
 
-  // Save to LocalStorage with debouncing
+  // Save to LocalStorage / server with debouncing (ADMIN only)
   useEffect(() => {
-    if (diagram.isTemplate || diagram.id.startsWith('template-')) {
       setIsSaving(false);
       return;
-    }
     setIsSaving(true);
     const timeout = setTimeout(() => {
       const updated: Diagram = {
@@ -111,20 +108,18 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
     }, 600);
 
     return () => clearTimeout(timeout);
-  }, [nodes, edges, diagram.title, diagram.category, diagram.isTemplate, diagram.id, gridType, defaultEdgeType, user?.id]);
+  }, [nodes, edges, diagram.title, diagram.category, diagram.isTemplate, diagram.id, gridType, defaultEdgeType, user?.id, isAdmin]);
 
-  // Connect handler
+  // Connect handler (ADMIN only)
   const onConnect = useCallback(
-    (params: Connection) => {
       if (!user) {
         openLoginModal();
+      }
+      if (!isAdmin) {
+        setToastMessage('Viewer access is read-only. Duplicate this flow to make changes.');
+        setTimeout(() => setToastMessage(null), 3000);
         return;
       }
-      const newEdge: Edge = {
-        ...params,
-        id: `e_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-        type: 'customEdge',
-        data: {
           label: '',
           edgeType: defaultEdgeType,
           strokeColor: '#64748b',
@@ -134,13 +129,12 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
       recordHistory(nodes, edges);
       setEdges((eds) => addEdge(newEdge, eds));
     },
-    [user, openLoginModal, nodes, edges, defaultEdgeType, recordHistory, setEdges]
+    [user, isAdmin, openLoginModal, nodes, edges, defaultEdgeType, recordHistory, setEdges]
   );
 
   // Selection change
   const onSelectionChange = useCallback((params: OnSelectionChangeParams) => {
     if (params.nodes && params.nodes.length > 0) {
-      setSelectedNode(params.nodes[0]);
       setSelectedEdge(null);
     } else if (params.edges && params.edges.length > 0) {
       setSelectedEdge(params.edges[0]);
@@ -164,12 +158,12 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
         openLoginModal();
         return;
       }
+      if (!isAdmin) {
+        setToastMessage('Viewer access is read-only. Duplicate this flow to make changes.');
+        setTimeout(() => setToastMessage(null), 3000);
+        return;
+      }
       const raw = e.dataTransfer.getData('application/reactflow');
-      if (!raw) return;
-
-      try {
-        const { type, data } = JSON.parse(raw);
-        const position = reactFlowInstance.screenToFlowPosition({
           x: e.clientX,
           y: e.clientY,
         });
@@ -187,23 +181,22 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
         console.error('Error dropping node:', err);
       }
     },
-    [user, openLoginModal, nodes, edges, reactFlowInstance, recordHistory, setNodes]
+    [user, isAdmin, openLoginModal, nodes, edges, reactFlowInstance, recordHistory, setNodes]
   );
 
   // One-click Add Node from Sidebar
   const handleAddNode = useCallback(
     (type: string, data: any) => {
       if (!user) {
-        openLoginModal();
+        return;
+      }
+      if (!isAdmin) {
+        setToastMessage('Viewer access is read-only. Duplicate this flow to make changes.');
+        setTimeout(() => setToastMessage(null), 3000);
         return;
       }
       const id = `node_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
       // Position near center with slight random offset
-      const currentZoom = reactFlowInstance.getZoom();
-      const viewport = reactFlowInstance.getViewport();
-      const clientWidth = reactFlowWrapper.current?.clientWidth || 800;
-      const clientHeight = reactFlowWrapper.current?.clientHeight || 600;
-
       const centerX = (-viewport.x + clientWidth / 2) / currentZoom - 100;
       const centerY = (-viewport.y + clientHeight / 2) / currentZoom - 50;
 
@@ -218,40 +211,31 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
       recordHistory(nodes, edges);
       setNodes((nds) => [...nds, newNode]);
     },
-    [user, openLoginModal, nodes, edges, reactFlowInstance, recordHistory, setNodes]
+    [user, isAdmin, openLoginModal, nodes, edges, reactFlowInstance, recordHistory, setNodes]
   );
 
-  // Update Node Data
+  // Update Node Data (Admin only)
   const handleUpdateNodeData = useCallback(
     (nodeId: string, newData: Record<string, any>) => {
-      if (!user) {
-        openLoginModal();
-        return;
-      }
+      if (!isAdmin) return;
       setNodes((nds) =>
-        nds.map((node) => {
           if (node.id === nodeId) {
             const updated = {
               ...node,
-              data: { ...node.data, ...newData },
             };
             setSelectedNode(updated);
             return updated;
           }
           return node;
         })
-      );
     },
-    [user, openLoginModal, setNodes]
+    [isAdmin, setNodes]
   );
 
-  // Update Edge Data
+  // Update Edge Data (Admin only)
   const handleUpdateEdgeData = useCallback(
     (edgeId: string, newData: Record<string, any>) => {
-      if (!user) {
-        openLoginModal();
-        return;
-      }
+      if (!isAdmin) return;
       setEdges((eds) =>
         eds.map((edge) => {
           if (edge.id === edgeId) {
@@ -259,23 +243,17 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
               ...edge,
               data: { ...edge.data, ...newData },
             };
-            setSelectedEdge(updated);
             return updated;
           }
           return edge;
-        })
       );
     },
-    [user, openLoginModal, setEdges]
+    [isAdmin, setEdges]
   );
 
-  // Duplicate Node
-  const handleDuplicateNode = useCallback(
+  // Duplicate Node (Admin only)
     (nodeId: string) => {
-      if (!user) {
-        openLoginModal();
-        return;
-      }
+      if (!isAdmin) return;
       const nodeToCopy = nodes.find((n) => n.id === nodeId);
       if (!nodeToCopy) return;
 
@@ -289,97 +267,74 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
         },
         selected: true,
       };
-
       recordHistory(nodes, edges);
       setNodes((nds) => [
         ...nds.map((n) => ({ ...n, selected: false })),
-        duplicated,
       ]);
       setSelectedNode(duplicated);
     },
-    [user, openLoginModal, nodes, edges, recordHistory, setNodes]
+    [isAdmin, nodes, edges, recordHistory, setNodes]
   );
 
-  // Delete Node
   const handleDeleteNode = useCallback(
     (nodeId: string) => {
-      if (!user) {
-        openLoginModal();
-        return;
-      }
+      if (!isAdmin) return;
       recordHistory(nodes, edges);
       setNodes((nds) => nds.filter((n) => n.id !== nodeId));
       setEdges((eds) => eds.filter((e) => e.source !== nodeId && e.target !== nodeId));
       setSelectedNode(null);
     },
-    [user, openLoginModal, nodes, edges, recordHistory, setNodes, setEdges]
+    [isAdmin, nodes, edges, recordHistory, setNodes, setEdges]
   );
 
-  // Delete Edge
+  // Delete Edge (Admin only)
   const handleDeleteEdge = useCallback(
     (edgeId: string) => {
-      if (!user) {
-        openLoginModal();
-        return;
-      }
+      if (!isAdmin) return;
       recordHistory(nodes, edges);
       setEdges((eds) => eds.filter((e) => e.id !== edgeId));
       setSelectedEdge(null);
     },
-    [user, openLoginModal, nodes, edges, recordHistory, setEdges]
+    [isAdmin, nodes, edges, recordHistory, setEdges]
   );
 
-  // Undo / Redo
   const handleUndo = useCallback(() => {
-    if (!user) {
-      openLoginModal();
-      return;
-    }
+    if (!isAdmin) return;
     if (history.length === 0) return;
-    isUndoRedoAction.current = true;
     const previous = history[history.length - 1];
     setFuture((f) => [{ nodes, edges }, ...f]);
     setHistory((h) => h.slice(0, -1));
     setNodes(previous.nodes);
     setEdges(previous.edges);
     setSelectedNode(null);
-    setSelectedEdge(null);
-  }, [user, openLoginModal, history, nodes, edges, setNodes, setEdges]);
+  }, [isAdmin, history, nodes, edges, setNodes, setEdges]);
 
   const handleRedo = useCallback(() => {
-    if (!user) {
-      openLoginModal();
-      return;
-    }
+    if (!isAdmin) return;
     if (future.length === 0) return;
     isUndoRedoAction.current = true;
-    const next = future[0];
     setHistory((h) => [...h, { nodes, edges }]);
     setFuture((f) => f.slice(1));
     setNodes(next.nodes);
-    setEdges(next.edges);
     setSelectedNode(null);
     setSelectedEdge(null);
-  }, [user, openLoginModal, future, nodes, edges, setNodes, setEdges]);
+  }, [isAdmin, future, nodes, edges, setNodes, setEdges]);
 
-  // Keyboard Shortcuts
+  // Keyboard Shortcuts (Admin only)
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!isAdmin) return;
       // Don't trigger if user is typing in an input or textarea
       const target = e.target as HTMLElement;
       if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) {
         return;
-      }
 
       if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) {
         e.preventDefault();
-        handleUndo();
       } else if (
         ((e.metaKey || e.ctrlKey) && e.key === 'y') ||
         ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'z')
       ) {
         e.preventDefault();
-        handleRedo();
       } else if (e.key === 'Delete' || e.key === 'Backspace') {
         if (selectedNode) {
           e.preventDefault();
@@ -390,15 +345,14 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
         }
       }
     };
-
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleUndo, handleRedo, selectedNode, selectedEdge, handleDeleteNode, handleDeleteEdge]);
+  }, [isAdmin, handleUndo, handleRedo, selectedNode, selectedEdge, handleDeleteNode, handleDeleteEdge]);
 
-  // Auto Layout
+  // Auto Layout (Admin only)
   const handleAutoLayout = useCallback(() => {
-    if (!user) {
-      openLoginModal();
+      setToastMessage('Viewer access is read-only.');
+      setTimeout(() => setToastMessage(null), 3000);
       return;
     }
     recordHistory(nodes, edges);
@@ -407,13 +361,10 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
     setTimeout(() => {
       reactFlowInstance.fitView({ padding: 0.2, duration: 400 });
     }, 50);
-  }, [user, openLoginModal, nodes, edges, recordHistory, setNodes, reactFlowInstance]);
 
   // Export handlers
-  const handleExportPNG = useCallback(() => {
     if (!reactFlowWrapper.current) return;
     const flowElem = reactFlowWrapper.current.querySelector('.react-flow__viewport') as HTMLElement;
-    if (!flowElem) return;
 
     toPng(flowElem, {
       backgroundColor: '#f8fafc',
@@ -443,16 +394,11 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
   }, [diagram.title]);
 
   const handleExportJSON = useCallback(() => {
-    const json = JSON.stringify({ ...diagram, nodes, edges }, null, 2);
     const blob = new Blob([json], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
     a.download = `${diagram.title.toLowerCase().replace(/\s+/g, '_')}.json`;
     a.href = url;
     a.click();
-    URL.revokeObjectURL(url);
-  }, [diagram, nodes, edges]);
-
   const handleImportJSON = useCallback((file: File) => {
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -462,7 +408,6 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
         router.push(`/flow/${imported.id}`);
       } catch {
         alert('Invalid diagram JSON file.');
-      }
     };
     reader.readAsText(file);
   }, [router]);
@@ -482,11 +427,17 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
       {/* Top Header Toolbar */}
       <EditorHeader
         diagram={diagram}
-        onUpdateTitle={(title) => setDiagram((d) => ({ ...d, title }))}
-        onUpdateCategory={(category) => setDiagram((d) => ({ ...d, category }))}
+        onUpdateTitle={(title) => {
+          if (!isAdmin) return;
+          setDiagram((d) => ({ ...d, title }));
+        }}
+        onUpdateCategory={(category) => {
+          if (!isAdmin) return;
+          setDiagram((d) => ({ ...d, category }));
+        }}
         isSaving={isSaving}
-        canUndo={history.length > 0}
-        canRedo={future.length > 0}
+        canUndo={isAdmin && history.length > 0}
+        canRedo={isAdmin && future.length > 0}
         onUndo={handleUndo}
         onRedo={handleRedo}
         onZoomIn={() => reactFlowInstance.zoomIn({ duration: 250 })}
@@ -501,6 +452,8 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
         onExportSVG={handleExportSVG}
         onExportJSON={handleExportJSON}
         onImportJSON={handleImportJSON}
+        onOpenAiModal={() => setIsAiModalOpen(true)}
+        userAccessType={userAccess}
       />
 
       {/* Sample Template Banner (Read-only) */}
@@ -527,6 +480,20 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
             <span>Duplicate to Edit</span>
           </button>
         </div>
+      ) : isViewer ? (
+        /* Viewer Notice Banner (Read-Only) */
+        <div className="bg-amber-50 border-b border-amber-200/90 px-4 py-2 flex items-center justify-between text-xs text-amber-900 shadow-2xs z-30">
+          <div className="flex items-center gap-2">
+                openLoginModal();
+                return;
+              }
+            }}
+            className="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white font-semibold rounded-lg text-xs shadow-xs transition-colors cursor-pointer"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>Duplicate to Edit as Admin</span>
+          </button>
+        </div>
       ) : (
         /* Top Notice Banner when user is logged out */
         !user && (
@@ -534,8 +501,6 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
             <div className="flex items-center gap-2">
               <Lock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
               <span>
-                <strong>Preview Mode:</strong> You must sign in or register to create, move, connect, or edit diagram nodes.
-              </span>
             </div>
             <button
               onClick={openLoginModal}
@@ -551,37 +516,17 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
       {/* Main Workspace: Left Palette + Canvas + Right Inspector */}
       <div className="flex flex-1 overflow-hidden relative">
         {/* Left Palette */}
-        <SidebarPalette onAddNode={handleAddNode} defaultCategory={diagram.category} />
+        <SidebarPalette
+          onAddNode={handleAddNode}
+          defaultCategory={diagram.category}
+          readOnly={!isAdmin}
+        />
 
         {/* Center React Flow Canvas */}
         <div ref={reactFlowWrapper} className="flex-1 h-full w-full relative">
           <ReactFlow
             nodes={nodes}
             edges={edges}
-            onNodesChange={user && !diagram.isTemplate && !diagram.id.startsWith('template-') ? onNodesChange : undefined}
-            onEdgesChange={user && !diagram.isTemplate && !diagram.id.startsWith('template-') ? onEdgesChange : undefined}
-            onConnect={onConnect}
-            nodesDraggable={!!user && !diagram.isTemplate && !diagram.id.startsWith('template-')}
-            nodesConnectable={!!user && !diagram.isTemplate && !diagram.id.startsWith('template-')}
-            elementsSelectable={true}
-            onSelectionChange={onSelectionChange}
-            onDragOver={onDragOver}
-            onDrop={onDrop}
-            nodeTypes={nodeTypes}
-            edgeTypes={edgeTypes}
-            fitView
-            fitViewOptions={{ padding: 0.25 }}
-            snapToGrid={diagram.settings?.snapToGrid ?? true}
-            snapGrid={[20, 20]}
-            defaultEdgeOptions={{
-              type: 'customEdge',
-              data: { edgeType: defaultEdgeType },
-            }}
-            proOptions={{ hideAttribution: true }}
-            className="bg-slate-50"
-          >
-            {/* Background pattern */}
-            {gridType !== 'none' && (
               <Background
                 variant={
                   gridType === 'lines'
@@ -607,11 +552,6 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
               pannable
               position="bottom-right"
               className="!w-44 !h-32 shadow-sm border border-slate-200"
-            />
-          </ReactFlow>
-        </div>
-
-        {/* Right Properties Panel */}
         <PropertiesPanel
           selectedNode={selectedNode}
           selectedEdge={selectedEdge}
@@ -620,10 +560,42 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
           onDuplicateNode={handleDuplicateNode}
           onDeleteNode={handleDeleteNode}
           onDeleteEdge={handleDeleteEdge}
-          nodeCount={nodes.length}
-          edgeCount={edges.length}
+          readOnly={!isAdmin}
         />
       </div>
+      {isAdmin && (
+        <AiAssistantModal
+          isOpen={isAiModalOpen}
+          onClose={() => setIsAiModalOpen(false)}
+          edges={edges}
+          onApplyChanges={(newNodes, newEdges, summary) => {
+            recordHistory(nodes, edges);
+            setNodes(newNodes);
+            setEdges(newEdges);
+            const updated: Diagram = {
+              ...diagram,
+              nodes: newNodes,
+              edges: newEdges,
+              updatedAt: new Date().toISOString(),
+            };
+            saveDiagram(updated, user?.id);
+            setDiagram(updated);
+            setToastMessage(summary || 'Diagram updated by AI!');
+            setTimeout(() => setToastMessage(null), 3500);
+            setTimeout(() => {
+              reactFlowInstance.fitView({ padding: 0.2, duration: 400 });
+            }, 100);
+          }}
+        />
+      )}
+
+      {/* Floating Toast Notification */}
+      {toastMessage && (
+        <div className="fixed bottom-6 right-6 z-50 bg-slate-900 text-white px-4 py-2.5 rounded-xl shadow-xl text-xs font-medium flex items-center gap-2 animate-in fade-in slide-in-from-bottom-2">
+          <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+          <span>{toastMessage}</span>
+        </div>
+      )}
     </div>
   );
 }
@@ -650,46 +622,8 @@ export default function FlowEditorPage() {
       try {
         const res = await fetch(`/api/diagrams/${id}`);
         if (res.ok) {
-          const serverDiagram = await res.json();
           if (serverDiagram && isMounted) {
             setDiagram(serverDiagram);
-            saveDiagram(serverDiagram, user?.id);
-          }
-        }
-      } catch {
-        // use local
-      } finally {
-        if (isMounted) setLoading(false);
-      }
-    }
-
-    loadDiagram();
-    return () => {
-      isMounted = false;
-    };
-  }, [id, user?.id]);
-
-  if (loading) {
-    return (
-      <div className="h-screen w-screen flex items-center justify-center bg-slate-50">
-        <div className="flex flex-col items-center gap-3">
-          <Loader2 className="w-7 h-7 animate-spin text-blue-600" />
-          <span className="text-xs font-semibold text-slate-500">Loading flow canvas...</span>
-        </div>
-      </div>
-    );
-  }
-
-  if (!diagram) {
-    return (
-      <div className="h-screen w-screen flex items-center justify-center bg-slate-50 p-4">
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-md p-8 max-w-md text-center">
-          <div className="w-12 h-12 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center mx-auto mb-3">
-            <Sparkles className="w-6 h-6" />
-          </div>
-          <h2 className="text-base font-bold text-slate-900">Diagram Not Found</h2>
-          <p className="text-xs text-slate-500 mt-1 mb-5">
-            The requested diagram may have been removed or does not exist.
           </p>
           <Link
             href="/"

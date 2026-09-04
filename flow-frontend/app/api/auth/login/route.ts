@@ -25,6 +25,18 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Invalid email or password' }, { status: 401 });
     }
 
+    // Strictly enforce isVerified (must be verified at register stage)
+    if (user.isVerified !== true) {
+      return NextResponse.json(
+        {
+          error: 'Your account has not been verified yet. Please complete verification with the 6-digit code to sign in.',
+          needsVerification: true,
+          email: user.email,
+        },
+        { status: 403 }
+      );
+    }
+
     // Generate tokens: Access Token valid 1 Day, Refresh Token valid 28 Days
     const accessToken = generateAccessToken({ id: user.id, email: user.email, name: user.name });
     const refreshToken = generateRefreshToken({ id: user.id });

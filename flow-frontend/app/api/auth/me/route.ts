@@ -25,7 +25,7 @@ export async function GET(request: Request) {
       const payload = verifyAccessToken(accessToken);
       if (payload && payload.userId) {
         const user = await findUserById(payload.userId);
-        if (user) {
+        if (user && user.isVerified === true) {
           return NextResponse.json({
             success: true,
             user: sanitizeUser(user),
@@ -40,7 +40,7 @@ export async function GET(request: Request) {
       const refreshPayload = verifyRefreshToken(refreshToken);
       if (refreshPayload && refreshPayload.userId) {
         const user = await findUserById(refreshPayload.userId);
-        if (user && user.refreshToken === refreshToken) {
+        if (user && user.refreshToken === refreshToken && user.isVerified === true) {
           // Auto-renew 1-day access token seamlessly
           const newAccessToken = generateAccessToken({ id: user.id, email: user.email, name: user.name });
           await setAccessTokenCookie(newAccessToken);

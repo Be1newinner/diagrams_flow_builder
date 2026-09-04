@@ -102,11 +102,64 @@ export async function updateUserRefreshToken(userId: string, refreshToken: strin
   }
 }
 
+export async function updateUserPassword(userId: string, passwordHash: string): Promise<void> {
+  const col = await getUsersCollection();
+  if (col) {
+    try {
+      await col.updateOne(
+        { id: userId },
+        {
+          $set: {
+            passwordHash,
+            updatedAt: new Date().toISOString(),
+          },
+        }
+      );
+      return;
+    } catch (err) {
+      console.error('Error updating user password in Mongo:', err);
+    }
+  }
+
+  const user = memoryUsers.get(userId);
+  if (user) {
+    user.passwordHash = passwordHash;
+    user.updatedAt = new Date().toISOString();
+  }
+}
+
+export async function updateUserVerification(userId: string, isVerified: boolean): Promise<void> {
+  const col = await getUsersCollection();
+  if (col) {
+    try {
+      await col.updateOne(
+        { id: userId },
+        {
+          $set: {
+            isVerified,
+            updatedAt: new Date().toISOString(),
+          },
+        }
+      );
+      return;
+    } catch (err) {
+      console.error('Error updating user verification in Mongo:', err);
+    }
+  }
+
+  const user = memoryUsers.get(userId);
+  if (user) {
+    user.isVerified = isVerified;
+    user.updatedAt = new Date().toISOString();
+  }
+}
+
 export function sanitizeUser(user: UserDocument): User {
   return {
     id: user.id,
     name: user.name,
     email: user.email,
+    isVerified: user.isVerified === true,
     createdAt: user.createdAt,
     updatedAt: user.updatedAt,
   };

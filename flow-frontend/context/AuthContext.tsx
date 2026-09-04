@@ -3,17 +3,25 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { User, AuthResponse } from '@/types/user';
 
+export type AuthModalMode = 'login' | 'register' | 'verify-register' | 'forgot-password' | 'verify-reset';
+
 interface AuthContextType {
   user: User | null;
   isLoading: boolean;
-  login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  login: (email: string, password: string) => Promise<{ success: boolean; error?: string; needsVerification?: boolean }>;
   register: (name: string, email: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  sendRegisterOtp: (name: string, email: string, password: string) => Promise<{ success: boolean; error?: string; message?: string }>;
+  verifyRegisterOtp: (email: string, otp: string) => Promise<{ success: boolean; error?: string }>;
+  sendForgotPasswordOtp: (email: string) => Promise<{ success: boolean; error?: string; message?: string }>;
+  resetPasswordWithOtp: (email: string, otp: string, newPassword: string) => Promise<{ success: boolean; error?: string; message?: string }>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
   isAuthModalOpen: boolean;
-  authModalMode: 'login' | 'register';
+  authModalMode: AuthModalMode;
+  setAuthModalMode: (mode: AuthModalMode) => void;
   openLoginModal: () => void;
   openRegisterModal: () => void;
+  openForgotPasswordModal: () => void;
   closeAuthModal: () => void;
 }
 
@@ -23,7 +31,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
-  const [authModalMode, setAuthModalMode] = useState<'login' | 'register'>('login');
+  const [authModalMode, setAuthModalMode] = useState<AuthModalMode>('login');
 
   const refreshUser = useCallback(async () => {
     try {
@@ -49,7 +57,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     refreshUser();
   }, [refreshUser]);
 
-  const login = async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
+  const login = async (
+    email: string,
+    password: string
+  ): Promise<{ success: boolean; error?: string; needsVerification?: boolean }> => {
     try {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
@@ -60,7 +71,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const data: AuthResponse = await res.json();
 
       if (!res.ok || !data.success || !data.user) {
-        return { success: false, error: data.error || 'Failed to sign in' };
+        return {
+          success: false,
+          error: data.error || 'Failed to sign in',
+          needsVerification: data.needsVerification,
+        };
       }
 
       setUser(data.user);
@@ -72,24 +87,99 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const register = async (name: string, email: string, password: string): Promise<{ success: boolean; error?: string }> => {
+    return sendRegisterOtp(name, email, password);
+  };
+
+  const sendRegisterOtp = async (
+    name: string,
+    email: string,
+    password: string
+  ): Promise<{ success: boolean; error?: string; message?: string }> => {
     try {
-      const res = await fetch('/api/auth/register', {
+      const res = await fetch('/api/auth/register-otp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, email, password }),
       });
 
-      const data: AuthResponse = await res.json();
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        return { success: false, error: data.error || 'Failed to send verification code' };
+      }
 
+      return { success: true, message: data.message };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Network error sending verification code' };
+    }
+  };
+
+  const verifyRegisterOtp = async (
+    email: string,
+    otp: string
+  ): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const res = await fetch('/api/auth/verify-register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, otp }),
+      });
+
+      const data: AuthResponse = await res.json();
       if (!res.ok || !data.success || !data.user) {
-        return { success: false, error: data.error || 'Failed to create account' };
+        return { success: false, error: data.error || 'Failed to verify verification code' };
       }
 
       setUser(data.user);
       setIsAuthModalOpen(false);
       return { success: true };
     } catch (err: any) {
-      return { success: false, error: err.message || 'Network error registering' };
+      return { success: false, error: err.message || 'Network error verifying code' };
+    }
+  };
+
+  const sendForgotPasswordOtp = async (
+    email: string
+  ): Promise<{ success: boolean; error?: string; message?: string }> => {
+    try {
+      const res = await fetch('/api/auth/forgot-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        return { success: false, error: data.error || 'Failed to send password reset code' };
+      }
+
+      return { success: true, message: data.message };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Network error sending reset code' };
+    }
+  };
+
+  const resetPasswordWithOtp = async (
+    email: string,
+    otp: string,
+    newPassword: string
+  ): Promise<{ success: boolean; error?: string; message?: string }> => {
+    try {
+      const res = await fetch('/api/auth/reset-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, otp, newPassword }),
+      });
+
+      const data: AuthResponse = await res.json();
+      if (!res.ok || !data.success || !data.user) {
+        return { success: false, error: data.error || 'Failed to reset password' };
+      }
+
+      setUser(data.user);
+      setIsAuthModalOpen(false);
+      return { success: true, message: data.message };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Network error resetting password' };
     }
   };
 
@@ -111,6 +201,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setIsAuthModalOpen(true);
   };
 
+  const openForgotPasswordModal = () => {
+    setAuthModalMode('forgot-password');
+    setIsAuthModalOpen(true);
+  };
+
   const closeAuthModal = () => {
     setIsAuthModalOpen(false);
   };
@@ -122,12 +217,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         isLoading,
         login,
         register,
+        sendRegisterOtp,
+        verifyRegisterOtp,
+        sendForgotPasswordOtp,
+        resetPasswordWithOtp,
         logout,
         refreshUser,
         isAuthModalOpen,
         authModalMode,
+        setAuthModalMode,
         openLoginModal,
         openRegisterModal,
+        openForgotPasswordModal,
         closeAuthModal,
       }}
     >

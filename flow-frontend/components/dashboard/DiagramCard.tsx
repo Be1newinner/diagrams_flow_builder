@@ -24,6 +24,7 @@ interface DiagramCardProps {
   onDuplicate: (id: string) => void;
   onExport: (id: string) => void;
   onDelete: (diagram: Diagram) => void;
+  currentUserId?: string;
 }
 
 const CATEGORY_CONFIG: Record<
@@ -90,11 +91,24 @@ export function DiagramCard({
   onDuplicate,
   onExport,
   onDelete,
+  currentUserId,
 }: DiagramCardProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const config = CATEGORY_CONFIG[diagram.category] || CATEGORY_CONFIG.general;
   const nodeCount = diagram.nodes?.length || 0;
   const edgeCount = diagram.edges?.length || 0;
+
+  const userAccess = React.useMemo<'ADMIN' | 'VIEWER' | 'TEMPLATE' | 'GUEST'>(() => {
+    if (diagram.isTemplate || diagram.id.startsWith('template-')) return 'TEMPLATE';
+    if (!currentUserId) return 'GUEST';
+    const matched = diagram.users?.find((u) => u.userId === currentUserId);
+    if (matched) return matched.accesstype;
+    if (diagram.userId === currentUserId) return 'ADMIN';
+    return 'VIEWER';
+  }, [diagram, currentUserId]);
+
+  const isAdmin = userAccess === 'ADMIN';
+  const isViewer = userAccess === 'VIEWER';
 
   if (viewMode === 'list') {
     return (
@@ -112,6 +126,11 @@ export function DiagramCard({
               <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${config.badgeBg} ${config.badgeText}`}>
                 {config.label}
               </span>
+              {isViewer && (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+                  Viewer
+                </span>
+              )}
             </div>
             {diagram.description && (
               <p className="text-xs text-slate-500 truncate mt-0.5 max-w-xl">
@@ -141,7 +160,7 @@ export function DiagramCard({
             href={`/flow/${diagram.id}`}
             className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition-colors"
           >
-            <span>Edit</span>
+            <span>{isViewer ? 'View' : 'Edit'}</span>
             <ArrowRight className="w-3 h-3" />
           </Link>
 
@@ -179,19 +198,28 @@ export function DiagramCard({
               </button>
 
               {!diagram.isTemplate && !diagram.id.startsWith('template-') ? (
-                <>
-                  <div className="my-1 border-t border-slate-100" />
-                  <button
-                    onClick={() => {
-                      setMenuOpen(false);
-                      onDelete(diagram);
-                    }}
-                    className="w-full text-left px-3 py-1.5 hover:bg-red-50 text-red-600 flex items-center gap-2 cursor-pointer"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                    <span>Delete</span>
-                  </button>
-                </>
+                isAdmin ? (
+                  <>
+                    <div className="my-1 border-t border-slate-100" />
+                    <button
+                      onClick={() => {
+                        setMenuOpen(false);
+                        onDelete(diagram);
+                      }}
+                      className="w-full text-left px-3 py-1.5 hover:bg-red-50 text-red-600 flex items-center gap-2 cursor-pointer"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Delete</span>
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <div className="my-1 border-t border-slate-100" />
+                    <div className="px-3 py-1 text-[10px] text-amber-600 font-medium italic">
+                      Viewer (Read-Only)
+                    </div>
+                  </>
+                )
               ) : (
                 <>
                   <div className="my-1 border-t border-slate-100" />
@@ -238,6 +266,12 @@ export function DiagramCard({
                 Sample
               </span>
             )}
+
+            {isViewer && (
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200 shadow-2xs">
+                Viewer
+              </span>
+            )}
           </div>
 
           <span className="text-[11px] font-mono text-slate-500 bg-white/90 px-2 py-0.5 rounded-md border border-slate-200/80 shadow-2xs">
@@ -256,7 +290,7 @@ export function DiagramCard({
               <div className="w-6 h-1.5 rounded bg-blue-500/70" />
             </div>
             <div className="w-8 border-t-2 border-dashed border-slate-300" />
-            <div className="w-12 h-10 rounded-lg bg-white border border-slate-200 shadow-2xs flex items-center justify-center group-hover:scale-105 transition-transform">
+            <div className="w-12 h-10 rounded-lg bg-white border-2 border-slate-200 shadow-2xs flex items-center justify-center group-hover:scale-105 transition-transform">
               <div className="w-3 h-3 rounded bg-emerald-500/80" />
             </div>
           </div>
@@ -311,19 +345,28 @@ export function DiagramCard({
                     <span>Export JSON</span>
                   </button>
                   {!diagram.isTemplate && !diagram.id.startsWith('template-') ? (
-                    <>
-                      <div className="my-1 border-t border-slate-100" />
-                      <button
-                        onClick={() => {
-                          setMenuOpen(false);
-                          onDelete(diagram);
-                        }}
-                        className="w-full text-left px-3 py-1.5 hover:bg-red-50 text-red-600 flex items-center gap-2 cursor-pointer"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                        <span>Delete</span>
-                      </button>
-                    </>
+                    isAdmin ? (
+                      <>
+                        <div className="my-1 border-t border-slate-100" />
+                        <button
+                          onClick={() => {
+                            setMenuOpen(false);
+                            onDelete(diagram);
+                          }}
+                          className="w-full text-left px-3 py-1.5 hover:bg-red-50 text-red-600 flex items-center gap-2 cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>Delete</span>
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <div className="my-1 border-t border-slate-100" />
+                        <div className="px-3 py-1 text-[10px] text-amber-600 font-medium italic">
+                          Viewer (Read-Only)
+                        </div>
+                      </>
+                    )
                   ) : (
                     <>
                       <div className="my-1 border-t border-slate-100" />
@@ -370,7 +413,13 @@ export function DiagramCard({
             href={`/flow/${diagram.id}`}
             className="inline-flex items-center gap-1 font-semibold text-xs text-blue-600 hover:text-blue-700 group/link"
           >
-            <span>{diagram.isTemplate || diagram.id.startsWith('template-') ? 'View Sample' : 'Open Canvas'}</span>
+            <span>
+              {diagram.isTemplate || diagram.id.startsWith('template-')
+                ? 'View Sample'
+                : isViewer
+                ? 'View Flow'
+                : 'Open Canvas'}
+            </span>
             <ExternalLink className="w-3 h-3 transition-transform group-hover/link:translate-x-0.5" />
           </Link>
         </div>

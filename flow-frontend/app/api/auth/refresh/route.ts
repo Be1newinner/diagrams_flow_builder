@@ -48,6 +48,15 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Session has been revoked or expired' }, { status: 401 });
     }
 
+    // Strictly enforce isVerified
+    if (user.isVerified !== true) {
+      await clearAuthCookies();
+      return NextResponse.json(
+        { error: 'Your account is not verified. Please complete verification to sign in.', needsVerification: true },
+        { status: 403 }
+      );
+    }
+
     // Generate new 1-Day Access Token
     const newAccessToken = generateAccessToken({ id: user.id, email: user.email, name: user.name });
 

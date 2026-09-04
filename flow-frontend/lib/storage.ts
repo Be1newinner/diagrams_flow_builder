@@ -139,15 +139,18 @@ export function saveDiagram(diagram: Diagram, userId?: string | null): void {
   try {
     const key = getStorageKey(userId);
     const diagrams = getDiagrams(userId);
-    const existingIndex = diagrams.findIndex((d) => d.id === diagram.id);
     const updatedDiagram: Diagram = {
       ...diagram,
-      userId: userId || undefined,
+      userId: userId || diagram.userId || undefined,
+      users: diagram.users && diagram.users.length > 0
+        ? diagram.users
+        : (userId ? [{ userId, accesstype: 'ADMIN' }] : undefined),
       isTemplate: false,
       updatedAt: new Date().toISOString(),
     };
 
     let nextList: Diagram[];
+    const existingIndex = diagrams.findIndex((d) => d.id === diagram.id);
     if (existingIndex >= 0) {
       nextList = [...diagrams];
       nextList[existingIndex] = updatedDiagram;
@@ -219,6 +222,7 @@ export function createDiagram(
       gridGap: 20,
     },
     userId: userId || undefined,
+    users: userId ? [{ userId, accesstype: 'ADMIN' }] : undefined,
     isTemplate: false,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -246,6 +250,7 @@ export function duplicateDiagram(id: string, userId?: string | null): Diagram | 
     id: newId,
     title: `${source.title} (Copy)`,
     userId: userId || undefined,
+    users: userId ? [{ userId, accesstype: 'ADMIN' }] : undefined,
     isTemplate: false,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),

@@ -70,6 +70,13 @@ export interface CustomEdgeData {
   [key: string]: unknown;
 }
 
+export type DiagramAccessType = 'ADMIN' | 'VIEWER';
+
+export interface DiagramUserAccess {
+  userId: string;
+  accesstype: DiagramAccessType;
+}
+
 export interface Diagram {
   id: string;
   title: string;
@@ -83,4 +90,5 @@ export interface Diagram {
   updatedAt: string;
   userId?: string;      // Owner user ID (or 'system' for templates)
   isTemplate?: boolean; // true for built-in sample templates
+  users?: DiagramUserAccess[]; // Access control list: exactly one ADMIN, multiple VIEWERS
 }

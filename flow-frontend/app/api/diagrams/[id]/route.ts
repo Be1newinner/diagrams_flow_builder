@@ -44,10 +44,14 @@ export async function PUT(
     );
   }
 
-  // Ensure user owns this diagram
-  if (existing.userId && existing.userId !== userId) {
+  // Ensure user is ADMIN of this diagram
+  const isAdmin =
+    existing.userId === userId ||
+    existing.users?.some((u) => u.userId === userId && u.accesstype === 'ADMIN');
+
+  if (!isAdmin) {
     return NextResponse.json(
-      { error: 'Forbidden: You can only edit your own diagrams.' },
+      { error: 'Forbidden: Only the diagram ADMIN can edit this diagram.' },
       { status: 403 }
     );
   }
@@ -102,9 +106,14 @@ export async function DELETE(
     );
   }
 
-  if (existing.userId && existing.userId !== userId) {
+  // Ensure user is ADMIN of this diagram
+  const isAdmin =
+    existing.userId === userId ||
+    existing.users?.some((u) => u.userId === userId && u.accesstype === 'ADMIN');
+
+  if (!isAdmin) {
     return NextResponse.json(
-      { error: 'Forbidden: You can only delete your own diagrams.' },
+      { error: 'Forbidden: Only the diagram ADMIN can delete this diagram.' },
       { status: 403 }
     );
   }
