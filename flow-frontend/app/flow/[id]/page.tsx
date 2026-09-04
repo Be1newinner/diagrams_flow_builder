@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import Link from 'next/link';
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -37,6 +38,7 @@ import { EditorHeader } from '@/components/editor/EditorHeader';
 import { SidebarPalette } from '@/components/editor/SidebarPalette';
 import { PropertiesPanel } from '@/components/editor/PropertiesPanel';
 import { AiAssistantModal } from '@/components/editor/AiAssistantModal';
+
 const nodeTypes = {
   systemNode: SystemNode,
   flowchartNode: FlowchartNode,
@@ -70,7 +72,28 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
     initialDiagram.settings?.defaultEdgeType || 'smoothstep'
   );
 
+  const [isAiModalOpen, setIsAiModalOpen] = useState(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  const isTemplate = diagram.isTemplate || diagram.id.startsWith('template-');
+
   // Access permissions: exactly 1 ADMIN can edit or delete, VIEWERS are read-only
+  const isAdmin =
+    !isTemplate &&
+    !!user &&
+    (diagram.userId === user.id ||
+      diagram.users?.some((u) => u.userId === user.id && u.accesstype === 'ADMIN') ||
+      !diagram.userId);
+  const isViewer =
+    !isTemplate && !!user && !isAdmin && !!diagram.users?.some((u) => u.userId === user.id && u.accesstype === 'VIEWER');
+  const userAccess: 'ADMIN' | 'VIEWER' | 'TEMPLATE' | 'GUEST' = isTemplate
+    ? 'TEMPLATE'
+    : isAdmin
+    ? 'ADMIN'
+    : isViewer
+    ? 'VIEWER'
+    : 'GUEST';
+
   const [history, setHistory] = useState<{ nodes: Node[]; edges: Edge[] }[]>([]);
   const [future, setFuture] = useState<{ nodes: Node[]; edges: Edge[] }[]>([]);
   const isUndoRedoAction = useRef(false);
@@ -87,8 +110,10 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
 
   // Save to LocalStorage / server with debouncing (ADMIN only)
   useEffect(() => {
+    if (isTemplate || !isAdmin) {
       setIsSaving(false);
       return;
+    }
     setIsSaving(true);
     const timeout = setTimeout(() => {
       const updated: Diagram = {
@@ -112,14 +137,21 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
 
   // Connect handler (ADMIN only)
   const onConnect = useCallback(
+    (params: Connection) => {
       if (!user) {
         openLoginModal();
+        return;
       }
       if (!isAdmin) {
         setToastMessage('Viewer access is read-only. Duplicate this flow to make changes.');
         setTimeout(() => setToastMessage(null), 3000);
         return;
       }
+      const newEdge: Edge = {
+        ...params,
+        id: `e_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        type: 'customEdge',
+        data: {
           label: '',
           edgeType: defaultEdgeType,
           strokeColor: '#64748b',
@@ -135,6 +167,7 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
   // Selection change
   const onSelectionChange = useCallback((params: OnSelectionChangeParams) => {
     if (params.nodes && params.nodes.length > 0) {
+      setSelectedNode(params.nodes[0]);
       setSelectedEdge(null);
     } else if (params.edges && params.edges.length > 0) {
       setSelectedEdge(params.edges[0]);
@@ -164,6 +197,11 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
         return;
       }
       const raw = e.dataTransfer.getData('application/reactflow');
+      if (!raw) return;
+
+      try {
+        const { type, data } = JSON.parse(raw);
+        const position = reactFlowInstance.screenToFlowPosition({
           x: e.clientX,
           y: e.clientY,
         });
@@ -196,7 +234,11 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
         return;
       }
       const id = `node_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
-      // Position near center with slight random offset
+      // Position near center of the current viewport with slight random offset
+      const viewport = reactFlowInstance.getViewport();
+      const currentZoom = viewport.zoom || 1;
+      const clientWidth = reactFlowWrapper.current?.clientWidth || 800;
+      const clientHeight = reactFlowWrapper.current?.clientHeight || 600;
       const centerX = (-viewport.x + clientWidth / 2) / currentZoom - 100;
       const centerY = (-viewport.y + clientHeight / 2) / currentZoom - 50;
 
@@ -219,15 +261,18 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
     (nodeId: string, newData: Record<string, any>) => {
       if (!isAdmin) return;
       setNodes((nds) =>
+        nds.map((node) => {
           if (node.id === nodeId) {
             const updated = {
               ...node,
+              data: { ...node.data, ...newData },
             };
             setSelectedNode(updated);
             return updated;
           }
           return node;
         })
+      );
     },
     [isAdmin, setNodes]
   );
@@ -243,15 +288,18 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
               ...edge,
               data: { ...edge.data, ...newData },
             };
+            setSelectedEdge(updated);
             return updated;
           }
           return edge;
+        })
       );
     },
     [isAdmin, setEdges]
   );
 
   // Duplicate Node (Admin only)
+  const handleDuplicateNode = useCallback(
     (nodeId: string) => {
       if (!isAdmin) return;
       const nodeToCopy = nodes.find((n) => n.id === nodeId);
@@ -270,12 +318,14 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
       recordHistory(nodes, edges);
       setNodes((nds) => [
         ...nds.map((n) => ({ ...n, selected: false })),
+        duplicated,
       ]);
       setSelectedNode(duplicated);
     },
     [isAdmin, nodes, edges, recordHistory, setNodes]
   );
 
+  // Delete Node (Admin only)
   const handleDeleteNode = useCallback(
     (nodeId: string) => {
       if (!isAdmin) return;
@@ -304,37 +354,46 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
     const previous = history[history.length - 1];
     setFuture((f) => [{ nodes, edges }, ...f]);
     setHistory((h) => h.slice(0, -1));
+    isUndoRedoAction.current = true;
     setNodes(previous.nodes);
     setEdges(previous.edges);
     setSelectedNode(null);
+    setSelectedEdge(null);
   }, [isAdmin, history, nodes, edges, setNodes, setEdges]);
 
   const handleRedo = useCallback(() => {
     if (!isAdmin) return;
     if (future.length === 0) return;
+    const next = future[0];
     isUndoRedoAction.current = true;
     setHistory((h) => [...h, { nodes, edges }]);
     setFuture((f) => f.slice(1));
     setNodes(next.nodes);
+    setEdges(next.edges);
     setSelectedNode(null);
     setSelectedEdge(null);
   }, [isAdmin, future, nodes, edges, setNodes, setEdges]);
 
   // Keyboard Shortcuts (Admin only)
   useEffect(() => {
-      if (!isAdmin) return;
+    if (!isAdmin) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
       // Don't trigger if user is typing in an input or textarea
       const target = e.target as HTMLElement;
       if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) {
         return;
+      }
 
       if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) {
         e.preventDefault();
+        handleUndo();
       } else if (
         ((e.metaKey || e.ctrlKey) && e.key === 'y') ||
         ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'z')
       ) {
         e.preventDefault();
+        handleRedo();
       } else if (e.key === 'Delete' || e.key === 'Backspace') {
         if (selectedNode) {
           e.preventDefault();
@@ -345,12 +404,14 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
         }
       }
     };
+
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isAdmin, handleUndo, handleRedo, selectedNode, selectedEdge, handleDeleteNode, handleDeleteEdge]);
 
   // Auto Layout (Admin only)
   const handleAutoLayout = useCallback(() => {
+    if (!isAdmin) {
       setToastMessage('Viewer access is read-only.');
       setTimeout(() => setToastMessage(null), 3000);
       return;
@@ -361,10 +422,13 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
     setTimeout(() => {
       reactFlowInstance.fitView({ padding: 0.2, duration: 400 });
     }, 50);
+  }, [isAdmin, nodes, edges, recordHistory, setNodes, reactFlowInstance]);
 
   // Export handlers
+  const handleExportPNG = useCallback(() => {
     if (!reactFlowWrapper.current) return;
     const flowElem = reactFlowWrapper.current.querySelector('.react-flow__viewport') as HTMLElement;
+    if (!flowElem) return;
 
     toPng(flowElem, {
       backgroundColor: '#f8fafc',
@@ -394,23 +458,32 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
   }, [diagram.title]);
 
   const handleExportJSON = useCallback(() => {
+    const json = exportDiagramJSON(diagram.id, user?.id);
     const blob = new Blob([json], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
     a.download = `${diagram.title.toLowerCase().replace(/\s+/g, '_')}.json`;
     a.href = url;
     a.click();
-  const handleImportJSON = useCallback((file: File) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const text = e.target?.result as string;
-        const imported = importDiagramJSON(text);
-        router.push(`/flow/${imported.id}`);
-      } catch {
-        alert('Invalid diagram JSON file.');
-    };
-    reader.readAsText(file);
-  }, [router]);
+    URL.revokeObjectURL(url);
+  }, [diagram.id, diagram.title, user?.id]);
+
+  const handleImportJSON = useCallback(
+    (file: File) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const text = e.target?.result as string;
+          const imported = importDiagramJSON(text, user?.id);
+          router.push(`/flow/${imported.id}`);
+        } catch {
+          alert('Invalid diagram JSON file.');
+        }
+      };
+      reader.readAsText(file);
+    },
+    [router, user?.id]
+  );
 
   // MiniMap node color mapper
   const nodeColor = useCallback((node: Node) => {
@@ -457,7 +530,7 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
       />
 
       {/* Sample Template Banner (Read-only) */}
-      {(diagram.isTemplate || diagram.id.startsWith('template-')) ? (
+      {isTemplate ? (
         <div className="bg-blue-50 border-b border-blue-200/90 px-4 py-2 flex items-center justify-between text-xs text-blue-900 shadow-2xs z-30">
           <div className="flex items-center gap-2">
             <Sparkles className="w-3.5 h-3.5 text-blue-600 shrink-0" />
@@ -484,9 +557,19 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
         /* Viewer Notice Banner (Read-Only) */
         <div className="bg-amber-50 border-b border-amber-200/90 px-4 py-2 flex items-center justify-between text-xs text-amber-900 shadow-2xs z-30">
           <div className="flex items-center gap-2">
+            <Eye className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+            <span>
+              <strong>Viewer Access:</strong> You have read-only access to this diagram.
+            </span>
+          </div>
+          <button
+            onClick={() => {
+              if (!user) {
                 openLoginModal();
                 return;
               }
+              const cloned = duplicateDiagram(diagram.id, user.id);
+              if (cloned) router.push(`/flow/${cloned.id}`);
             }}
             className="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white font-semibold rounded-lg text-xs shadow-xs transition-colors cursor-pointer"
           >
@@ -501,6 +584,8 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
             <div className="flex items-center gap-2">
               <Lock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
               <span>
+                <strong>Preview Mode:</strong> You must sign in or register to create, move, connect, or edit diagram nodes.
+              </span>
             </div>
             <button
               onClick={openLoginModal}
@@ -527,6 +612,30 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
           <ReactFlow
             nodes={nodes}
             edges={edges}
+            onNodesChange={isAdmin ? onNodesChange : undefined}
+            onEdgesChange={isAdmin ? onEdgesChange : undefined}
+            onConnect={onConnect}
+            nodesDraggable={isAdmin}
+            nodesConnectable={isAdmin}
+            elementsSelectable={true}
+            onSelectionChange={onSelectionChange}
+            onDragOver={onDragOver}
+            onDrop={onDrop}
+            nodeTypes={nodeTypes}
+            edgeTypes={edgeTypes}
+            fitView
+            fitViewOptions={{ padding: 0.25 }}
+            snapToGrid={diagram.settings?.snapToGrid ?? true}
+            snapGrid={[20, 20]}
+            defaultEdgeOptions={{
+              type: 'customEdge',
+              data: { edgeType: defaultEdgeType },
+            }}
+            proOptions={{ hideAttribution: true }}
+            className="bg-slate-50"
+          >
+            {/* Background pattern */}
+            {gridType !== 'none' && (
               <Background
                 variant={
                   gridType === 'lines'
@@ -552,6 +661,11 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
               pannable
               position="bottom-right"
               className="!w-44 !h-32 shadow-sm border border-slate-200"
+            />
+          </ReactFlow>
+        </div>
+
+        {/* Right Properties Panel */}
         <PropertiesPanel
           selectedNode={selectedNode}
           selectedEdge={selectedEdge}
@@ -560,13 +674,18 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
           onDuplicateNode={handleDuplicateNode}
           onDeleteNode={handleDeleteNode}
           onDeleteEdge={handleDeleteEdge}
+          nodeCount={nodes.length}
+          edgeCount={edges.length}
           readOnly={!isAdmin}
         />
       </div>
+
       {isAdmin && (
         <AiAssistantModal
           isOpen={isAiModalOpen}
           onClose={() => setIsAiModalOpen(false)}
+          diagram={diagram}
+          nodes={nodes}
           edges={edges}
           onApplyChanges={(newNodes, newEdges, summary) => {
             recordHistory(nodes, edges);
@@ -622,8 +741,46 @@ export default function FlowEditorPage() {
       try {
         const res = await fetch(`/api/diagrams/${id}`);
         if (res.ok) {
+          const serverDiagram = await res.json();
           if (serverDiagram && isMounted) {
             setDiagram(serverDiagram);
+            saveDiagram(serverDiagram, user?.id);
+          }
+        }
+      } catch {
+        // use local
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    }
+
+    loadDiagram();
+    return () => {
+      isMounted = false;
+    };
+  }, [id, user?.id]);
+
+  if (loading) {
+    return (
+      <div className="h-screen w-screen flex items-center justify-center bg-slate-50">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="w-7 h-7 animate-spin text-blue-600" />
+          <span className="text-xs font-semibold text-slate-500">Loading flow canvas...</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (!diagram) {
+    return (
+      <div className="h-screen w-screen flex items-center justify-center bg-slate-50 p-4">
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-md p-8 max-w-md text-center">
+          <div className="w-12 h-12 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center mx-auto mb-3">
+            <Sparkles className="w-6 h-6" />
+          </div>
+          <h2 className="text-base font-bold text-slate-900">Diagram Not Found</h2>
+          <p className="text-xs text-slate-500 mt-1 mb-5">
+            The requested diagram may have been removed or does not exist.
           </p>
           <Link
             href="/"
