@@ -8,6 +8,15 @@ const __dirname = path.dirname(__filename);
 export const DEFAULT_APP_URL = 'https://diagrams-flow-builder.vercel.app';
 export const APP_URL = process.env.FLOW_APP_URL || DEFAULT_APP_URL;
 export const API_URL = process.env.FLOW_API_URL || `${APP_URL}/api/diagrams`;
+// Long-lived MCP JWT (see lib/auth.ts generateMcpToken on the frontend) — required
+// for the Vercel API to attribute writes to a real account instead of rejecting them.
+const MCP_TOKEN = process.env.FLOW_MCP_TOKEN;
+if (!MCP_TOKEN) {
+    console.error('[FlowCraft MCP] FLOW_MCP_TOKEN is not set — writes to the live API will be rejected (401) and silently fall back to local storage.');
+}
+function authHeaders(extra = {}) {
+    return MCP_TOKEN ? { ...extra, Authorization: `Bearer ${MCP_TOKEN}` } : extra;
+}
 export function getAppUrl() {
     return APP_URL;
 }
@@ -95,7 +104,7 @@ export async function getAllDiagrams() {
     // 1. Try Live Vercel API first
     if (API_URL) {
         try {
-            const res = await fetch(API_URL);
+            const res = await fetch(API_URL, { headers: authHeaders() });
             if (res.ok) {
                 const data = await res.json();
                 if (Array.isArray(data)) {
@@ -126,7 +135,7 @@ export async function getDiagramById(id) {
     // 1. Try Live Vercel API
     if (API_URL) {
         try {
-            const res = await fetch(`${API_URL}/${id}`);
+            const res = await fetch(`${API_URL}/${id}`, { headers: authHeaders() });
             if (res.ok) {
                 return (await res.json());
             }
@@ -162,16 +171,22 @@ export async function saveDiagram(diagram) {
         try {
             await fetch(`${API_URL}/${updated.id}`, {
                 method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
+                headers: authHeaders({ 'Content-Type': 'application/json' }),
                 body: JSON.stringify(updated),
             }).then(async (res) => {
-                if (!res.ok) {
+                if (res.status === 401 || res.status === 403) {
+                    console.error(`[FlowCraft MCP] Vercel API rejected write (${res.status}) — check FLOW_MCP_TOKEN is set and valid.`);
+                }
+                else if (!res.ok) {
                     // If 404, create
-                    await fetch(API_URL, {
+                    const createRes = await fetch(API_URL, {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
+                        headers: authHeaders({ 'Content-Type': 'application/json' }),
                         body: JSON.stringify(updated),
                     });
+                    if (createRes.status === 401 || createRes.status === 403) {
+                        console.error(`[FlowCraft MCP] Vercel API rejected create (${createRes.status}) — check FLOW_MCP_TOKEN is set and valid.`);
+                    }
                 }
             });
         }
@@ -312,7 +327,10 @@ export async function deleteDiagram(id) {
     // 1. Delete on Vercel API
     if (API_URL) {
         try {
-            await fetch(`${API_URL}/${id}`, { method: 'DELETE' });
+            const res = await fetch(`${API_URL}/${id}`, { method: 'DELETE', headers: authHeaders() });
+            if (res.status === 401 || res.status === 403) {
+                console.error(`[FlowCraft MCP] Vercel API rejected delete (${res.status}) — check FLOW_MCP_TOKEN is set and valid.`);
+            }
         }
         catch (err) {
             console.error('[FlowCraft MCP] Vercel API delete error:', err);

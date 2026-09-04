@@ -1,5 +1,282 @@
 [
   {
+    "id": "flow_1788508909981_27tp0",
+    "title": "Unified Client Ledger",
+    "description": "Every ingestion source writes into one per-client ledger; categorisation, reconciliation, VAT, and the client UI all read from it.",
+    "category": "system-design",
+    "tags": [
+      "ledger",
+      "reconciliation",
+      "vat",
+      "complyax"
+    ],
+    "nodes": [
+      {
+        "id": "xero",
+        "type": "systemNode",
+        "position": {
+          "x": 80,
+          "y": 80
+        },
+        "data": {
+          "title": "Xero",
+          "subtitle": "Live API pull, per VAT run"
+        }
+      },
+      {
+        "id": "quickbooks",
+        "type": "systemNode",
+        "position": {
+          "x": 80,
+          "y": 240
+        },
+        "data": {
+          "title": "QuickBooks",
+          "subtitle": "Live API pull"
+        }
+      },
+      {
+        "id": "bank-stmt",
+        "type": "systemNode",
+        "position": {
+          "x": 80,
+          "y": 400
+        },
+        "data": {
+          "title": "Bank Statement",
+          "subtitle": "PDF/CSV upload"
+        }
+      },
+      {
+        "id": "manual",
+        "type": "systemNode",
+        "position": {
+          "x": 80,
+          "y": 560
+        },
+        "data": {
+          "title": "Manual Entry",
+          "subtitle": "Accountant-entered"
+        }
+      },
+      {
+        "id": "adapter",
+        "type": "systemNode",
+        "position": {
+          "x": 360,
+          "y": 80
+        },
+        "data": {
+          "title": "Source Adapters",
+          "subtitle": "Normalize to LedgerEntryDraft"
+        }
+      },
+      {
+        "id": "dedup",
+        "type": "systemNode",
+        "position": {
+          "x": 640,
+          "y": 80
+        },
+        "data": {
+          "title": "Dedup Gate",
+          "subtitle": "Fingerprint match: date ±2d, amount, particulars"
+        }
+      },
+      {
+        "id": "ledger",
+        "type": "systemNode",
+        "position": {
+          "x": 920,
+          "y": 80
+        },
+        "data": {
+          "title": "LedgerEntry",
+          "subtitle": "Canonical per-client book of transactions",
+          "themeColor": "green"
+        }
+      },
+      {
+        "id": "categorisation",
+        "type": "systemNode",
+        "position": {
+          "x": 1200,
+          "y": 80
+        },
+        "data": {
+          "title": "Categorisation Pipeline",
+          "subtitle": "F05 rules + LLM, learns per client"
+        }
+      },
+      {
+        "id": "bank-recon",
+        "type": "systemNode",
+        "position": {
+          "x": 1200,
+          "y": 240
+        },
+        "data": {
+          "title": "Bank Reconciliation",
+          "subtitle": "rulesEngine matchers, sets matchedEntryId"
+        }
+      },
+      {
+        "id": "vat-calc",
+        "type": "systemNode",
+        "position": {
+          "x": 1200,
+          "y": 400
+        },
+        "data": {
+          "title": "VAT Box Calculation",
+          "subtitle": "9-box calculator, reads by taxCode + period"
+        }
+      },
+      {
+        "id": "ledger-ui",
+        "type": "systemNode",
+        "position": {
+          "x": 1200,
+          "y": 560
+        },
+        "data": {
+          "title": "Ledger Screen",
+          "subtitle": "Client-facing day-wise view"
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "e_1788508924922_0",
+        "source": "xero",
+        "target": "adapter",
+        "type": "customEdge",
+        "data": {
+          "label": "",
+          "edgeType": "smoothstep",
+          "animated": false,
+          "strokeColor": "#64748b"
+        }
+      },
+      {
+        "id": "e_1788508924922_1",
+        "source": "quickbooks",
+        "target": "adapter",
+        "type": "customEdge",
+        "data": {
+          "label": "",
+          "edgeType": "smoothstep",
+          "animated": false,
+          "strokeColor": "#64748b"
+        }
+      },
+      {
+        "id": "e_1788508924922_2",
+        "source": "bank-stmt",
+        "target": "adapter",
+        "type": "customEdge",
+        "data": {
+          "label": "",
+          "edgeType": "smoothstep",
+          "animated": false,
+          "strokeColor": "#64748b"
+        }
+      },
+      {
+        "id": "e_1788508924922_3",
+        "source": "manual",
+        "target": "adapter",
+        "type": "customEdge",
+        "data": {
+          "label": "",
+          "edgeType": "smoothstep",
+          "animated": false,
+          "strokeColor": "#64748b"
+        }
+      },
+      {
+        "id": "e_1788508924922_4",
+        "source": "adapter",
+        "target": "dedup",
+        "type": "customEdge",
+        "data": {
+          "label": "normalized draft",
+          "edgeType": "smoothstep",
+          "animated": false,
+          "strokeColor": "#64748b"
+        }
+      },
+      {
+        "id": "e_1788508924922_5",
+        "source": "dedup",
+        "target": "ledger",
+        "type": "customEdge",
+        "data": {
+          "label": "write",
+          "edgeType": "smoothstep",
+          "animated": false,
+          "strokeColor": "#64748b"
+        }
+      },
+      {
+        "id": "e_1788508924922_6",
+        "source": "ledger",
+        "target": "categorisation",
+        "type": "customEdge",
+        "data": {
+          "label": "",
+          "edgeType": "smoothstep",
+          "animated": true,
+          "strokeColor": "#64748b"
+        }
+      },
+      {
+        "id": "e_1788508924922_7",
+        "source": "ledger",
+        "target": "bank-recon",
+        "type": "customEdge",
+        "data": {
+          "label": "",
+          "edgeType": "smoothstep",
+          "animated": true,
+          "strokeColor": "#64748b"
+        }
+      },
+      {
+        "id": "e_1788508924922_8",
+        "source": "ledger",
+        "target": "vat-calc",
+        "type": "customEdge",
+        "data": {
+          "label": "",
+          "edgeType": "smoothstep",
+          "animated": true,
+          "strokeColor": "#64748b"
+        }
+      },
+      {
+        "id": "e_1788508924922_9",
+        "source": "ledger",
+        "target": "ledger-ui",
+        "type": "customEdge",
+        "data": {
+          "label": "",
+          "edgeType": "smoothstep",
+          "animated": true,
+          "strokeColor": "#64748b"
+        }
+      }
+    ],
+    "settings": {
+      "gridType": "dots",
+      "snapToGrid": true,
+      "defaultEdgeType": "smoothstep",
+      "gridGap": 20
+    },
+    "createdAt": "2026-09-04T08:01:49.981Z",
+    "updatedAt": "2026-09-04T08:02:11.164Z"
+  },
+  {
     "id": "limit_flow_replacement_1788453592541",
     "title": "Replacement Flow",
     "category": "flowchart",
