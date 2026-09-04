@@ -88,7 +88,7 @@ export default function McpConfigPage() {
             env: {
               FLOW_APP_URL: liveAppUrl,
               FLOW_API_URL: liveApiUrl,
-              ...(token ? { FLOW_AUTH_TOKEN: token } : {}),
+              ...(token ? { FLOW_MCP_TOKEN: token } : {}),
             },
           },
         },
@@ -108,7 +108,7 @@ export default function McpConfigPage() {
             env: {
               FLOW_APP_URL: liveAppUrl,
               FLOW_API_URL: liveApiUrl,
-              ...(token ? { FLOW_AUTH_TOKEN: token } : {}),
+              ...(token ? { FLOW_MCP_TOKEN: token } : {}),
             },
           },
         },
@@ -128,7 +128,7 @@ export default function McpConfigPage() {
             env: {
               FLOW_APP_URL: liveAppUrl,
               FLOW_API_URL: liveApiUrl,
-              ...(token ? { FLOW_AUTH_TOKEN: token } : {}),
+              ...(token ? { FLOW_MCP_TOKEN: token } : {}),
             },
           },
         },
@@ -139,7 +139,8 @@ export default function McpConfigPage() {
   };
 
   const getTerminalCommand = () => {
-    return `cd /mnt/Data/Projects/diagrams_flow_builder/flow-mcp-server\nFLOW_APP_URL="${liveAppUrl}" FLOW_API_URL="${liveApiUrl}" node dist/index.js`;
+    const tokenPart = token ? ` FLOW_MCP_TOKEN="${token}"` : ' FLOW_MCP_TOKEN="<sign in above to get your token>"';
+    return `cd /mnt/Data/Projects/diagrams_flow_builder/flow-mcp-server\nFLOW_APP_URL="${liveAppUrl}" FLOW_API_URL="${liveApiUrl}"${tokenPart} node dist/index.js`;
   };
 
   const getActiveCode = () => {
