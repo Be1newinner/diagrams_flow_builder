@@ -187,13 +187,15 @@ export function createDiagram(
     templateId?: string;
     gridType?: 'dots' | 'lines' | 'cross' | 'none';
     defaultEdgeType?: 'smoothstep' | 'bezier' | 'straight';
+    nodes?: Diagram['nodes'];
+    edges?: Diagram['edges'];
   },
   userId?: string | null
 ): Diagram {
-  let initialNodes: Diagram['nodes'] = [];
-  let initialEdges: Diagram['edges'] = [];
+  let initialNodes: Diagram['nodes'] = params.nodes || [];
+  let initialEdges: Diagram['edges'] = params.edges || [];
 
-  if (params.templateId && params.templateId !== 'blank') {
+  if (!params.nodes && params.templateId && params.templateId !== 'blank') {
     const template = STARTER_TEMPLATES.find((t) => t.id === params.templateId);
     if (template) {
       initialNodes = JSON.parse(JSON.stringify(template.nodes));

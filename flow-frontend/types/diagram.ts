@@ -1,4 +1,5 @@
 import { Node, Edge } from '@xyflow/react';
+export type { Node, Edge };
 
 export type DiagramCategory = 'system-design' | 'flowchart' | 'er-diagram' | 'general';
 

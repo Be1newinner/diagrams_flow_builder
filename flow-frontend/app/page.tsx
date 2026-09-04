@@ -121,6 +121,8 @@ export default function DashboardPage() {
     templateId?: string;
     gridType?: 'dots' | 'lines' | 'cross' | 'none';
     defaultEdgeType?: 'smoothstep' | 'bezier' | 'straight';
+    nodes?: any;
+    edges?: any;
   }) => {
     if (userOwnedCount >= MAX_LIMIT) {
       showToast(`Diagram limit reached (${MAX_LIMIT}/${MAX_LIMIT}).`);

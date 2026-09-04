@@ -52,6 +52,7 @@ interface EditorHeaderProps {
   onExportSVG: () => void;
   onExportJSON: () => void;
   onImportJSON: (file: File) => void;
+  onOpenAiModal?: () => void;
 }
 
 export function EditorHeader({
@@ -75,6 +76,7 @@ export function EditorHeader({
   onExportSVG,
   onExportJSON,
   onImportJSON,
+  onOpenAiModal,
 }: EditorHeaderProps) {
   const { user, openLoginModal, logout } = useAuth();
   const [isEditingTitle, setIsEditingTitle] = useState(false);
@@ -211,12 +213,23 @@ export function EditorHeader({
 
         <button
           onClick={onAutoLayout}
-          className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors"
+          className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer"
           title="Auto-arrange nodes hierarchically"
         >
-          <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
-          <span>Tidy Layout</span>
+          <Sparkles className="w-3.5 h-3.5 text-slate-500" />
+          <span>Tidy</span>
         </button>
+
+        {onOpenAiModal && (
+          <button
+            onClick={onOpenAiModal}
+            className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold text-white bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 rounded-lg shadow-xs shadow-indigo-500/20 transition-all cursor-pointer"
+            title="Ask Gemini AI to build, modify, or enhance this diagram"
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>Ask AI</span>
+          </button>
+        )}
       </div>
 
       {/* Right: Canvas Settings & Export Buttons */}
