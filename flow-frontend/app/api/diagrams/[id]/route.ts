@@ -9,8 +9,14 @@ export async function GET(
 ) {
   const { id } = await props.params;
   const userId = await resolveAuthUserId(request);
-  const diagram = await getServerDiagram(id, userId);
+  if (!userId) {
+    return NextResponse.json(
+      { error: 'Authentication required. You must be signed in to view diagrams.' },
+      { status: 401 }
+    );
+  }
 
+  const diagram = await getServerDiagram(id, userId);
   if (!diagram) {
     return NextResponse.json({ error: 'Diagram not found or access denied' }, { status: 404 });
   }

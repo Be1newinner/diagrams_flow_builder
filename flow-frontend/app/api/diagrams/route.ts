@@ -5,6 +5,12 @@ import { Diagram } from '@/types/diagram';
 
 export async function GET(request: Request) {
   const userId = await resolveAuthUserId(request);
+  if (!userId) {
+    return NextResponse.json(
+      { error: 'Authentication required. You must be signed in to view diagrams.' },
+      { status: 401 }
+    );
+  }
   const diagrams = await getServerDiagrams(userId);
   return NextResponse.json(diagrams);
 }
