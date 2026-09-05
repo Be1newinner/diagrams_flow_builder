@@ -3,6 +3,7 @@ import path from 'path';
 import { Diagram, DiagramUserAccess } from '@/types/diagram';
 import { STARTER_TEMPLATES } from './templates';
 import clientPromise from './mongodb';
+import { publishDiagramUpdate } from './ably';
 
 const DATA_DIR = path.resolve(process.cwd(), '../data');
 const DATA_FILE = path.join(DATA_DIR, 'diagrams.json');
@@ -289,6 +290,13 @@ export async function saveServerDiagram(
 
   // Also sync to local file for backup/offline
   saveFileDiagram(updated);
+
+  // Notify anyone with this diagram open — another tab, another user, or an
+  // MCP tool client — right away instead of making them poll for it. This is
+  // the single choke point every save path (PUT route, POST route, and every
+  // MCP tool handler) already goes through.
+  publishDiagramUpdate(updated.id, updated.updatedAt);
+
   return updated;
 }
 

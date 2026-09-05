@@ -22,6 +22,7 @@ import {
   OnSelectionChangeParams,
 } from '@xyflow/react';
 import { toPng, toSvg } from 'html-to-image';
+import type Ably from 'ably';
 import { ArrowLeft, Loader2, Sparkles, Plus, Lock, LogIn, Eye, CheckCircle2, RefreshCw } from 'lucide-react';
 
 import { useAuth } from '@/context/AuthContext';
@@ -234,31 +235,97 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
     return () => clearTimeout(timeout);
   }, [nodes, edges, diagram, gridType, defaultEdgeType, user?.id, isAdmin, isTemplate]);
 
-  // Poll for drift while this tab is open, so edits made elsewhere (another
-  // tab, another user, or an MCP tool call) are noticed even if this tab
-  // never attempts its own save.
+  // Applies a server-fetched diagram to everything that actually drives the
+  // canvas. `diagram` only holds metadata (title/category/settings) — the
+  // visible nodes/edges live in their own useNodesState/useEdgesState. An
+  // earlier version of this poll only called setDiagram(latest), which
+  // updated that metadata but left the on-screen nodes/edges untouched, so
+  // an already-open tab looked stuck even though it had "adopted" the
+  // update internally. Route every adoption through here instead.
+  const adoptDiagram = useCallback(
+    (next: Diagram) => {
+      isDirtyRef.current = false;
+      isUndoRedoAction.current = false;
+      setHistory([]);
+      setFuture([]);
+      setSelectedNode(null);
+      setSelectedEdge(null);
+      setNodes(next.nodes || []);
+      setEdges(next.edges || []);
+      setGridType(next.settings?.gridType || 'dots');
+      setDefaultEdgeType(next.settings?.defaultEdgeType || 'smoothstep');
+      setDiagram(next);
+    },
+    [setNodes, setEdges]
+  );
+
+  // Real-time drift detection: subscribe to this diagram's Ably channel so
+  // edits made elsewhere (another tab, another user, or an MCP tool call)
+  // arrive as a push the moment they're saved, instead of waiting on a poll.
+  // serverStorage.ts publishes an 'updated' event with the new updatedAt
+  // after every successful save, from every write path.
+  const diagramIdRef = useRef(diagram.id);
+  const diagramUpdatedAtRef = useRef(diagram.updatedAt);
+  useEffect(() => {
+    diagramIdRef.current = diagram.id;
+    diagramUpdatedAtRef.current = diagram.updatedAt;
+  }, [diagram.id, diagram.updatedAt]);
+
   useEffect(() => {
     if (isTemplate || !isAdmin) return;
-    const interval = setInterval(async () => {
-      const latest = await fetchLatestFromServer(diagram.id);
-      if (!latest || latest.updatedAt === diagram.updatedAt) return;
+
+    let realtime: Ably.Realtime | null = null;
+    let cancelled = false;
+
+    const handleUpdate = async (updatedAt: string) => {
+      if (updatedAt === diagramUpdatedAtRef.current) return; // our own save echoing back
+      const latest = await fetchLatestFromServer(diagramIdRef.current);
+      if (!latest || cancelled) return;
       if (isDirtyRef.current) {
         // We have unsaved local edits — don't discard them, just warn.
         setConflictDiagramState(latest);
       } else {
-        // Nothing unsaved locally: safe to silently adopt the newer version.
-        setDiagram(latest);
+        // Nothing unsaved locally: safe to adopt the newer version immediately.
+        adoptDiagram(latest);
       }
-    }, 15000);
-    return () => clearInterval(interval);
-  }, [diagram.id, diagram.updatedAt, isAdmin, isTemplate]);
+    };
+
+    (async () => {
+      const Ably = (await import('ably')).default;
+      if (cancelled) return;
+      realtime = new Ably.Realtime({ authUrl: '/api/ably-token' });
+      const channel = realtime.channels.get(`diagram:${diagramIdRef.current}`);
+      channel.subscribe('updated', (msg) => {
+        handleUpdate(msg.data?.updatedAt);
+      });
+    })();
+
+    // Fallback safety net in case Ably is unreachable, misconfigured
+    // (ABLY_API_KEY unset), or the realtime connection silently drops —
+    // much slower than the old primary mechanism since it's now just a
+    // backstop, not the main sync path.
+    const fallbackPoll = setInterval(async () => {
+      const latest = await fetchLatestFromServer(diagramIdRef.current);
+      if (!latest || latest.updatedAt === diagramUpdatedAtRef.current) return;
+      if (isDirtyRef.current) {
+        setConflictDiagramState(latest);
+      } else {
+        adoptDiagram(latest);
+      }
+    }, 60000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(fallbackPoll);
+      realtime?.close();
+    };
+  }, [diagram.id, isAdmin, isTemplate, adoptDiagram]);
 
   const handleReloadLatest = useCallback(() => {
     if (!conflictDiagram) return;
-    isDirtyRef.current = false;
-    setDiagram(conflictDiagram);
+    adoptDiagram(conflictDiagram);
     setConflictDiagramState(null);
-  }, [conflictDiagram]);
+  }, [conflictDiagram, adoptDiagram]);
 
   // Connect handler (ADMIN only)
   const onConnect = useCallback(
