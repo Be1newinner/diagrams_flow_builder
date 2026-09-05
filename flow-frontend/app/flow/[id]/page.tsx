@@ -23,7 +23,21 @@ import {
 } from '@xyflow/react';
 import { toPng, toSvg } from 'html-to-image';
 import type Ably from 'ably';
-import { ArrowLeft, Loader2, Sparkles, Plus, Lock, LogIn, Eye, CheckCircle2, RefreshCw } from 'lucide-react';
+import {
+  ArrowLeft,
+  Loader2,
+  Sparkles,
+  Plus,
+  Lock,
+  LogIn,
+  Eye,
+  CheckCircle2,
+  RefreshCw,
+  PanelLeftClose,
+  PanelLeftOpen,
+  PanelRightClose,
+  PanelRightOpen,
+} from 'lucide-react';
 
 import { useAuth } from '@/context/AuthContext';
 import { Diagram, DiagramCategory } from '@/types/diagram';
@@ -77,6 +91,8 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
   const [gridType, setGridType] = useState<'dots' | 'lines' | 'cross' | 'none'>(
     initialDiagram.settings?.gridType || 'dots'
   );
+  const [gridGap, setGridGap] = useState<number>(initialDiagram.settings?.gridGap || 20);
+  const [gridSize, setGridSize] = useState<number>(initialDiagram.settings?.gridSize || 1.2);
   const [defaultEdgeType, setDefaultEdgeType] = useState<'smoothstep' | 'bezier' | 'straight'>(
     initialDiagram.settings?.defaultEdgeType || 'smoothstep'
   );
@@ -100,6 +116,8 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
   // each sidebar and the canvas.
   const [leftWidth, setLeftWidth] = useState(288); // w-72
   const [rightWidth, setRightWidth] = useState(320); // w-80
+  const [leftVisible, setLeftVisible] = useState(true);
+  const [rightVisible, setRightVisible] = useState(true);
   const LEFT_MIN = 220;
   const LEFT_MAX = 480;
   const RIGHT_MIN = 260;
@@ -214,6 +232,8 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
         settings: {
           ...diagram.settings,
           gridType,
+          gridGap,
+          gridSize,
           defaultEdgeType,
         },
       };
@@ -233,7 +253,7 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
     }, 600);
 
     return () => clearTimeout(timeout);
-  }, [nodes, edges, diagram, gridType, defaultEdgeType, user?.id, isAdmin, isTemplate]);
+  }, [nodes, edges, diagram, gridType, gridGap, gridSize, defaultEdgeType, user?.id, isAdmin, isTemplate]);
 
   // Applies a server-fetched diagram to everything that actually drives the
   // canvas. `diagram` only holds metadata (title/category/settings) — the
@@ -253,6 +273,8 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
       setNodes(next.nodes || []);
       setEdges(next.edges || []);
       setGridType(next.settings?.gridType || 'dots');
+      setGridGap(next.settings?.gridGap || 20);
+      setGridSize(next.settings?.gridSize || 1.2);
       setDefaultEdgeType(next.settings?.defaultEdgeType || 'smoothstep');
       setDiagram(next);
     },
@@ -369,6 +391,43 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
       setSelectedEdge(null);
     }
   }, []);
+
+  // Selecting a row in the Layers panel: mirror the same selection state a
+  // canvas click would produce (so the Properties tab reflects it too),
+  // reflect `selected` on the node/edge itself so React Flow highlights it,
+  // and pan/zoom so it's actually visible.
+  const handleSelectFromLayers = useCallback(
+    (nodeId: string) => {
+      setNodes((nds) => nds.map((n) => ({ ...n, selected: n.id === nodeId })));
+      setEdges((eds) => eds.map((e) => ({ ...e, selected: false })));
+      const node = nodes.find((n) => n.id === nodeId) || null;
+      setSelectedNode(node);
+      setSelectedEdge(null);
+      if (node) {
+        reactFlowInstance.fitView({ nodes: [{ id: nodeId }], duration: 300, maxZoom: 1.25, padding: 0.5 });
+      }
+    },
+    [nodes, setNodes, setEdges, reactFlowInstance]
+  );
+
+  const handleSelectEdgeFromLayers = useCallback(
+    (edgeId: string) => {
+      setEdges((eds) => eds.map((e) => ({ ...e, selected: e.id === edgeId })));
+      setNodes((nds) => nds.map((n) => ({ ...n, selected: false })));
+      const edge = edges.find((e) => e.id === edgeId) || null;
+      setSelectedEdge(edge);
+      setSelectedNode(null);
+      if (edge) {
+        reactFlowInstance.fitView({
+          nodes: [{ id: edge.source }, { id: edge.target }],
+          duration: 300,
+          maxZoom: 1.25,
+          padding: 0.5,
+        });
+      }
+    },
+    [edges, setNodes, setEdges, reactFlowInstance]
+  );
 
   // Drag and Drop from Sidebar
   const onDragOver = useCallback((e: React.DragEvent) => {
@@ -717,9 +776,25 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
         onFitView={() => reactFlowInstance.fitView({ padding: 0.2, duration: 400 })}
         onAutoLayout={handleAutoLayout}
         gridType={gridType}
-        onChangeGridType={setGridType}
+        onChangeGridType={(t) => {
+          isDirtyRef.current = true;
+          setGridType(t);
+        }}
+        gridGap={gridGap}
+        onChangeGridGap={(gap) => {
+          isDirtyRef.current = true;
+          setGridGap(gap);
+        }}
+        gridSize={gridSize}
+        onChangeGridSize={(size) => {
+          isDirtyRef.current = true;
+          setGridSize(size);
+        }}
         defaultEdgeType={defaultEdgeType}
-        onChangeDefaultEdgeType={setDefaultEdgeType}
+        onChangeDefaultEdgeType={(t) => {
+          isDirtyRef.current = true;
+          setDefaultEdgeType(t);
+        }}
         onExportPNG={handleExportPNG}
         onExportSVG={handleExportSVG}
         onExportJSON={handleExportJSON}
@@ -828,21 +903,36 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
       {/* Main Workspace: Left Palette + Canvas + Right Inspector */}
       <div className="flex flex-1 overflow-hidden relative">
         {/* Left Palette */}
-        <div style={{ width: leftWidth, flexShrink: 0 }} className="h-full">
-          <SidebarPalette
-            onAddNode={handleAddNode}
-            defaultCategory={diagram.category}
-            readOnly={!isAdmin}
-          />
-        </div>
+        {leftVisible && (
+          <div style={{ width: leftWidth, flexShrink: 0 }} className="h-full">
+            <SidebarPalette
+              onAddNode={handleAddNode}
+              defaultCategory={diagram.category}
+              readOnly={!isAdmin}
+            />
+          </div>
+        )}
 
-        {/* Left resize handle */}
+        {/* Left resize handle + collapse toggle */}
         <div
-          onMouseDown={startResize('left')}
-          className="w-1.5 shrink-0 h-full cursor-col-resize relative z-30 group"
-          title="Drag to resize"
+          onMouseDown={leftVisible ? startResize('left') : undefined}
+          className={`w-3 shrink-0 h-full relative z-30 group flex items-center justify-center ${
+            leftVisible ? 'cursor-col-resize' : ''
+          }`}
+          title={leftVisible ? 'Drag to resize' : undefined}
         >
           <div className="absolute inset-y-0 left-1/2 -translate-x-1/2 w-px bg-slate-200 group-hover:bg-blue-400 group-active:bg-blue-500 transition-colors" />
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setLeftVisible((v) => !v);
+            }}
+            onMouseDown={(e) => e.stopPropagation()}
+            className="absolute top-1/2 -translate-y-1/2 w-5 h-9 rounded-md bg-white border border-slate-200 shadow-xs flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-50 transition-colors z-40 cursor-pointer"
+            title={leftVisible ? 'Hide left sidebar' : 'Show left sidebar'}
+          >
+            {leftVisible ? <PanelLeftClose className="w-3.5 h-3.5" /> : <PanelLeftOpen className="w-3.5 h-3.5" />}
+          </button>
         </div>
 
         {/* Center React Flow Canvas */}
@@ -882,8 +972,8 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
                     ? BackgroundVariant.Cross
                     : BackgroundVariant.Dots
                 }
-                gap={20}
-                size={1.2}
+                gap={gridGap}
+                size={gridSize}
                 color="#cbd5e1"
               />
             )}
@@ -903,30 +993,53 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
           </ReactFlow>
         </div>
 
-        {/* Right resize handle */}
+        {/* Right resize handle + collapse toggle */}
         <div
-          onMouseDown={startResize('right')}
-          className="w-1.5 shrink-0 h-full cursor-col-resize relative z-30 group"
-          title="Drag to resize"
+          onMouseDown={rightVisible ? startResize('right') : undefined}
+          className={`w-3 shrink-0 h-full relative z-30 group flex items-center justify-center ${
+            rightVisible ? 'cursor-col-resize' : ''
+          }`}
+          title={rightVisible ? 'Drag to resize' : undefined}
         >
           <div className="absolute inset-y-0 left-1/2 -translate-x-1/2 w-px bg-slate-200 group-hover:bg-blue-400 group-active:bg-blue-500 transition-colors" />
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setRightVisible((v) => !v);
+            }}
+            onMouseDown={(e) => e.stopPropagation()}
+            className="absolute top-1/2 -translate-y-1/2 w-5 h-9 rounded-md bg-white border border-slate-200 shadow-xs flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-50 transition-colors z-40 cursor-pointer"
+            title={rightVisible ? 'Hide right panel' : 'Show right panel'}
+          >
+            {rightVisible ? (
+              <PanelRightClose className="w-3.5 h-3.5" />
+            ) : (
+              <PanelRightOpen className="w-3.5 h-3.5" />
+            )}
+          </button>
         </div>
 
         {/* Right Properties Panel */}
-        <div style={{ width: rightWidth, flexShrink: 0 }} className="h-full">
-          <PropertiesPanel
-            selectedNode={selectedNode}
-            selectedEdge={selectedEdge}
-            onUpdateNodeData={handleUpdateNodeData}
-            onUpdateEdgeData={handleUpdateEdgeData}
-            onDuplicateNode={handleDuplicateNode}
-            onDeleteNode={handleDeleteNode}
-            onDeleteEdge={handleDeleteEdge}
-            nodeCount={nodes.length}
-            edgeCount={edges.length}
-            readOnly={!isAdmin}
-          />
-        </div>
+        {rightVisible && (
+          <div style={{ width: rightWidth, flexShrink: 0 }} className="h-full">
+            <PropertiesPanel
+              selectedNode={selectedNode}
+              selectedEdge={selectedEdge}
+              nodes={nodes}
+              edges={edges}
+              onUpdateNodeData={handleUpdateNodeData}
+              onUpdateEdgeData={handleUpdateEdgeData}
+              onDuplicateNode={handleDuplicateNode}
+              onDeleteNode={handleDeleteNode}
+              onDeleteEdge={handleDeleteEdge}
+              onSelectNode={handleSelectFromLayers}
+              onSelectEdge={handleSelectEdgeFromLayers}
+              nodeCount={nodes.length}
+              edgeCount={edges.length}
+              readOnly={!isAdmin}
+            />
+          </div>
+        )}
       </div>
 
       {isAdmin && (

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import {
   ArrowLeft,
@@ -46,6 +46,10 @@ interface EditorHeaderProps {
   onAutoLayout: () => void;
   gridType: 'dots' | 'lines' | 'cross' | 'none';
   onChangeGridType: (type: 'dots' | 'lines' | 'cross' | 'none') => void;
+  gridGap: number;
+  onChangeGridGap: (gap: number) => void;
+  gridSize: number;
+  onChangeGridSize: (size: number) => void;
   defaultEdgeType: 'smoothstep' | 'bezier' | 'straight';
   onChangeDefaultEdgeType: (type: 'smoothstep' | 'bezier' | 'straight') => void;
   onExportPNG: () => void;
@@ -71,6 +75,10 @@ export function EditorHeader({
   onAutoLayout,
   gridType,
   onChangeGridType,
+  gridGap,
+  onChangeGridGap,
+  gridSize,
+  onChangeGridSize,
   defaultEdgeType,
   onChangeDefaultEdgeType,
   onExportPNG,
@@ -86,6 +94,39 @@ export function EditorHeader({
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const [canvasSettingsOpen, setCanvasSettingsOpen] = useState(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const canvasSettingsRef = useRef<HTMLDivElement>(null);
+  const exportMenuRef = useRef<HTMLDivElement>(null);
+
+  // Click-outside-to-close instead of onMouseLeave. The old approach closed
+  // the dropdown the instant the cursor left its bounding box — including
+  // the small gap between the trigger button and the panel below it, or any
+  // stray pixel while moving the mouse toward an option — so the menu could
+  // vanish before a click landed. Closing only on an actual outside click
+  // (or Escape) makes it robust to how the mouse moves inside it.
+  useEffect(() => {
+    if (!canvasSettingsOpen && !exportMenuOpen) return;
+    const handlePointerDown = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (canvasSettingsOpen && canvasSettingsRef.current && !canvasSettingsRef.current.contains(target)) {
+        setCanvasSettingsOpen(false);
+      }
+      if (exportMenuOpen && exportMenuRef.current && !exportMenuRef.current.contains(target)) {
+        setExportMenuOpen(false);
+      }
+    };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setCanvasSettingsOpen(false);
+        setExportMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [canvasSettingsOpen, exportMenuOpen]);
 
   const handleTitleBlur = () => {
     setIsEditingTitle(false);
@@ -257,7 +298,7 @@ export function EditorHeader({
       {/* Right: Canvas Settings & Export Buttons */}
       <div className="flex items-center gap-2">
         {/* Canvas Background Settings Dropdown */}
-        <div className="relative">
+        <div className="relative" ref={canvasSettingsRef}>
           <button
             onClick={() => setCanvasSettingsOpen(!canvasSettingsOpen)}
             className={`p-2 rounded-lg text-xs font-medium border transition-colors flex items-center gap-1.5 ${
@@ -272,10 +313,7 @@ export function EditorHeader({
           </button>
 
           {canvasSettingsOpen && (
-            <div
-              className="absolute right-0 top-11 w-56 bg-white border border-slate-200 rounded-xl shadow-xl p-3 z-50 text-xs text-slate-700 animate-in fade-in"
-              onMouseLeave={() => setCanvasSettingsOpen(false)}
-            >
+            <div className="absolute right-0 top-11 w-64 bg-white border border-slate-200 rounded-xl shadow-xl p-3 z-50 text-xs text-slate-700 animate-in fade-in">
               <div className="font-semibold text-slate-800 mb-2">Canvas Background</div>
               <div className="grid grid-cols-2 gap-1.5 mb-3">
                 {[
@@ -286,10 +324,7 @@ export function EditorHeader({
                 ].map((item) => (
                   <button
                     key={item.id}
-                    onClick={() => {
-                      onChangeGridType(item.id as any);
-                      setCanvasSettingsOpen(false);
-                    }}
+                    onClick={() => onChangeGridType(item.id as any)}
                     className={`py-1.5 px-2 rounded-lg text-center font-medium border transition-all ${
                       gridType === item.id
                         ? 'bg-blue-50 border-blue-300 text-blue-700'
@@ -300,6 +335,43 @@ export function EditorHeader({
                   </button>
                 ))}
               </div>
+
+              {gridType !== 'none' && (
+                <div className="space-y-3 pt-2 mb-1 border-t border-slate-100">
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="font-semibold text-slate-700">Spacing</label>
+                      <span className="text-slate-400 font-mono">{gridGap}px</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={10}
+                      max={60}
+                      step={5}
+                      value={gridGap}
+                      onChange={(e) => onChangeGridGap(Number(e.target.value))}
+                      className="w-full accent-blue-600 cursor-pointer"
+                    />
+                  </div>
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="font-semibold text-slate-700">
+                        {gridType === 'dots' ? 'Dot Size' : 'Line Thickness'}
+                      </label>
+                      <span className="text-slate-400 font-mono">{gridSize}px</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={0.5}
+                      max={4}
+                      step={0.5}
+                      value={gridSize}
+                      onChange={(e) => onChangeGridSize(Number(e.target.value))}
+                      className="w-full accent-blue-600 cursor-pointer"
+                    />
+                  </div>
+                </div>
+              )}
 
               <div className="font-semibold text-slate-800 mb-1.5 pt-2 border-t border-slate-100">
                 Default Edge Style
@@ -312,10 +384,7 @@ export function EditorHeader({
                 ].map((item) => (
                   <button
                     key={item.id}
-                    onClick={() => {
-                      onChangeDefaultEdgeType(item.id as any);
-                      setCanvasSettingsOpen(false);
-                    }}
+                    onClick={() => onChangeDefaultEdgeType(item.id as any)}
                     className={`w-full text-left py-1 px-2 rounded font-medium flex items-center justify-between ${
                       defaultEdgeType === item.id
                         ? 'bg-blue-50 text-blue-700'
@@ -341,7 +410,7 @@ export function EditorHeader({
         />
 
         {/* Export Menu Dropdown */}
-        <div className="relative">
+        <div className="relative" ref={exportMenuRef}>
           <button
             onClick={() => setExportMenuOpen(!exportMenuOpen)}
             className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors shadow-xs shadow-blue-500/20"
@@ -351,10 +420,7 @@ export function EditorHeader({
           </button>
 
           {exportMenuOpen && (
-            <div
-              className="absolute right-0 top-11 w-48 bg-white border border-slate-200 rounded-xl shadow-xl py-1.5 z-50 text-xs text-slate-700 animate-in fade-in"
-              onMouseLeave={() => setExportMenuOpen(false)}
-            >
+            <div className="absolute right-0 top-11 w-48 bg-white border border-slate-200 rounded-xl shadow-xl py-1.5 z-50 text-xs text-slate-700 animate-in fade-in">
               <button
                 onClick={() => {
                   setExportMenuOpen(false);

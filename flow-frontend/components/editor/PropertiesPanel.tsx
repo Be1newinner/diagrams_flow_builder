@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import { Node, Edge } from '@xyflow/react';
 import {
   Sliders,
@@ -17,6 +17,8 @@ import {
   Eye,
   Type,
   Maximize,
+  GitBranch,
+  Box,
 } from 'lucide-react';
 import {
   SystemNodeData,
@@ -31,14 +33,42 @@ import {
 interface PropertiesPanelProps {
   selectedNode: Node | null;
   selectedEdge: Edge | null;
+  nodes: Node[];
+  edges: Edge[];
   onUpdateNodeData: (id: string, newData: Record<string, any>) => void;
   onUpdateEdgeData: (id: string, newData: Record<string, any>) => void;
   onDuplicateNode: (id: string) => void;
   onDeleteNode: (id: string) => void;
   onDeleteEdge: (id: string) => void;
+  onSelectNode: (id: string) => void;
+  onSelectEdge: (id: string) => void;
   nodeCount: number;
   edgeCount: number;
   readOnly?: boolean;
+}
+
+// Best-effort human label across every node type's differently-shaped data.
+function nodeLabel(node: Node): string {
+  const d = (node.data || {}) as Record<string, unknown>;
+  const candidates = [d.title, d.label, d.tableName, d.noteTitle, d.groupLabel];
+  return (candidates.find((c) => typeof c === 'string' && c.length > 0) as string | undefined) || node.id;
+}
+
+function nodeTypeLabel(node: Node): string {
+  switch (node.type) {
+    case 'systemNode':
+      return 'System';
+    case 'erTableNode':
+      return 'ER Table';
+    case 'flowchartNode':
+      return 'Flowchart';
+    case 'stickyNode':
+      return 'Note';
+    case 'groupNode':
+      return 'Group';
+    default:
+      return node.type || 'Node';
+  }
 }
 
 const COLOR_OPTIONS = [
@@ -74,15 +104,70 @@ const ICONS_LIST = [
 export function PropertiesPanel({
   selectedNode,
   selectedEdge,
+  nodes,
+  edges,
   onUpdateNodeData,
   onUpdateEdgeData,
   onDuplicateNode,
   onDeleteNode,
   onDeleteEdge,
+  onSelectNode,
+  onSelectEdge,
   nodeCount,
   edgeCount,
   readOnly = false,
 }: PropertiesPanelProps) {
+  const [activeTab, setActiveTab] = useState<'properties' | 'layers'>('properties');
+
+  const tabBar = (
+    <div className="flex items-center gap-1 border-b border-slate-100 px-2 pt-2 shrink-0 bg-white">
+      <button
+        onClick={() => setActiveTab('properties')}
+        className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-semibold rounded-t-lg border-b-2 -mb-px transition-colors cursor-pointer ${
+          activeTab === 'properties'
+            ? 'border-blue-600 text-blue-700'
+            : 'border-transparent text-slate-500 hover:text-slate-700'
+        }`}
+      >
+        <Sliders className="w-3.5 h-3.5" />
+        Properties
+      </button>
+      <button
+        onClick={() => setActiveTab('layers')}
+        className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-semibold rounded-t-lg border-b-2 -mb-px transition-colors cursor-pointer ${
+          activeTab === 'layers'
+            ? 'border-blue-600 text-blue-700'
+            : 'border-transparent text-slate-500 hover:text-slate-700'
+        }`}
+      >
+        <Layers className="w-3.5 h-3.5" />
+        Layers
+        <span className="px-1.5 rounded-full bg-slate-100 text-slate-500 text-[10px] font-bold">
+          {nodeCount + edgeCount}
+        </span>
+      </button>
+    </div>
+  );
+
+  if (activeTab === 'layers') {
+    return (
+      <aside className="w-full h-full bg-white border-l border-slate-200 flex flex-col select-none z-20 shadow-2xs">
+        {tabBar}
+        <LayersList
+          nodes={nodes}
+          edges={edges}
+          selectedNode={selectedNode}
+          selectedEdge={selectedEdge}
+          onSelectNode={onSelectNode}
+          onSelectEdge={onSelectEdge}
+          onDeleteNode={onDeleteNode}
+          onDeleteEdge={onDeleteEdge}
+          readOnly={readOnly}
+        />
+      </aside>
+    );
+  }
+
   // Case 1: Node Selected
   if (selectedNode) {
     const nodeType = selectedNode.type;
@@ -90,6 +175,7 @@ export function PropertiesPanel({
 
     return (
       <aside className="w-full h-full bg-white border-l border-slate-200 flex flex-col select-none z-20 shadow-2xs">
+        {tabBar}
         {/* Header */}
         <div className="p-3.5 border-b border-slate-100 flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -498,6 +584,7 @@ export function PropertiesPanel({
 
     return (
       <aside className="w-full h-full bg-white border-l border-slate-200 flex flex-col select-none z-20 shadow-2xs">
+        {tabBar}
         <div className="p-3.5 border-b border-slate-100 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Sliders className="w-4 h-4 text-blue-600" />
@@ -600,6 +687,7 @@ export function PropertiesPanel({
   // Case 3: Canvas / Nothing Selected
   return (
     <aside className="w-full h-full bg-white border-l border-slate-200 flex flex-col select-none z-20 shadow-2xs">
+      {tabBar}
       <div className="p-3.5 border-b border-slate-100 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Info className="w-4 h-4 text-blue-600" />
@@ -665,5 +753,132 @@ export function PropertiesPanel({
         </div>
       </div>
     </aside>
+  );
+}
+
+interface LayersListProps {
+  nodes: Node[];
+  edges: Edge[];
+  selectedNode: Node | null;
+  selectedEdge: Edge | null;
+  onSelectNode: (id: string) => void;
+  onSelectEdge: (id: string) => void;
+  onDeleteNode: (id: string) => void;
+  onDeleteEdge: (id: string) => void;
+  readOnly: boolean;
+}
+
+function LayersList({
+  nodes,
+  edges,
+  selectedNode,
+  selectedEdge,
+  onSelectNode,
+  onSelectEdge,
+  onDeleteNode,
+  onDeleteEdge,
+  readOnly,
+}: LayersListProps) {
+  const edgeEndpointLabel = (id: string) => {
+    const node = nodes.find((n) => n.id === id);
+    return node ? nodeLabel(node) : id;
+  };
+
+  return (
+    <div className="flex-1 overflow-y-auto text-xs">
+      {/* Nodes */}
+      <div className="px-3.5 pt-3 pb-1.5 text-[11px] font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1.5 sticky top-0 bg-white">
+        <Box className="w-3 h-3" />
+        Nodes ({nodes.length})
+      </div>
+      {nodes.length === 0 ? (
+        <div className="px-3.5 py-2 text-slate-400 italic">No nodes yet.</div>
+      ) : (
+        <ul>
+          {nodes.map((node) => {
+            const active = selectedNode?.id === node.id;
+            return (
+              <li key={node.id}>
+                <div
+                  onClick={() => onSelectNode(node.id)}
+                  className={`group flex items-center gap-2 px-3.5 py-1.5 cursor-pointer border-l-2 transition-colors ${
+                    active
+                      ? 'bg-blue-50 border-blue-500 text-blue-800'
+                      : 'border-transparent hover:bg-slate-50 text-slate-700'
+                  }`}
+                  title={node.id}
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-slate-300 shrink-0" />
+                  <span className="truncate flex-1 font-medium">{nodeLabel(node)}</span>
+                  <span className="text-[10px] text-slate-400 shrink-0">{nodeTypeLabel(node)}</span>
+                  {!readOnly && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onDeleteNode(node.id);
+                      }}
+                      className="p-1 rounded text-slate-300 hover:text-red-600 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                      title="Delete node"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      {/* Edges */}
+      <div className="px-3.5 pt-3 pb-1.5 text-[11px] font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1.5 sticky top-0 bg-white border-t border-slate-100 mt-1">
+        <GitBranch className="w-3 h-3" />
+        Connections ({edges.length})
+      </div>
+      {edges.length === 0 ? (
+        <div className="px-3.5 py-2 text-slate-400 italic">No connections yet.</div>
+      ) : (
+        <ul>
+          {edges.map((edge) => {
+            const active = selectedEdge?.id === edge.id;
+            const label = (edge.data as CustomEdgeData | undefined)?.label;
+            return (
+              <li key={edge.id}>
+                <div
+                  onClick={() => onSelectEdge(edge.id)}
+                  className={`group flex items-center gap-2 px-3.5 py-1.5 cursor-pointer border-l-2 transition-colors ${
+                    active
+                      ? 'bg-blue-50 border-blue-500 text-blue-800'
+                      : 'border-transparent hover:bg-slate-50 text-slate-700'
+                  }`}
+                  title={edge.id}
+                >
+                  <span className="truncate flex-1 font-medium">
+                    {edgeEndpointLabel(edge.source)}
+                    <span className="text-slate-400 mx-1">&rarr;</span>
+                    {edgeEndpointLabel(edge.target)}
+                  </span>
+                  {label ? (
+                    <span className="text-[10px] text-slate-400 truncate max-w-[70px] shrink-0">{label}</span>
+                  ) : null}
+                  {!readOnly && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onDeleteEdge(edge.id);
+                      }}
+                      className="p-1 rounded text-slate-300 hover:text-red-600 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                      title="Delete connection"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
   );
 }

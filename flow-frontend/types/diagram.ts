@@ -8,6 +8,7 @@ export interface CanvasSettings {
   snapToGrid: boolean;
   defaultEdgeType: 'smoothstep' | 'bezier' | 'straight';
   gridGap?: number;
+  gridSize?: number;
 }
 
 export interface ERColumn {
