@@ -89,7 +89,7 @@ export function PropertiesPanel({
     const data = selectedNode.data as Record<string, any>;
 
     return (
-      <aside className="w-80 bg-white border-l border-slate-200 flex flex-col h-full select-none z-20 shadow-2xs">
+      <aside className="w-full h-full bg-white border-l border-slate-200 flex flex-col select-none z-20 shadow-2xs">
         {/* Header */}
         <div className="p-3.5 border-b border-slate-100 flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -497,7 +497,7 @@ export function PropertiesPanel({
     const edgeData = (selectedEdge.data || {}) as CustomEdgeData;
 
     return (
-      <aside className="w-80 bg-white border-l border-slate-200 flex flex-col h-full select-none z-20 shadow-2xs">
+      <aside className="w-full h-full bg-white border-l border-slate-200 flex flex-col select-none z-20 shadow-2xs">
         <div className="p-3.5 border-b border-slate-100 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Sliders className="w-4 h-4 text-blue-600" />
@@ -599,7 +599,7 @@ export function PropertiesPanel({
 
   // Case 3: Canvas / Nothing Selected
   return (
-    <aside className="w-80 bg-white border-l border-slate-200 flex flex-col h-full select-none z-20 shadow-2xs">
+    <aside className="w-full h-full bg-white border-l border-slate-200 flex flex-col select-none z-20 shadow-2xs">
       <div className="p-3.5 border-b border-slate-100 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Info className="w-4 h-4 text-blue-600" />

@@ -75,6 +75,44 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
+  // Resizable left/right panel widths (px), dragged via the handles between
+  // each sidebar and the canvas.
+  const [leftWidth, setLeftWidth] = useState(288); // w-72
+  const [rightWidth, setRightWidth] = useState(320); // w-80
+  const LEFT_MIN = 220;
+  const LEFT_MAX = 480;
+  const RIGHT_MIN = 260;
+  const RIGHT_MAX = 520;
+
+  const startResize = useCallback((side: 'left' | 'right') => (e: React.MouseEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = side === 'left' ? leftWidth : rightWidth;
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const delta = moveEvent.clientX - startX;
+      if (side === 'left') {
+        const next = Math.min(LEFT_MAX, Math.max(LEFT_MIN, startWidth + delta));
+        setLeftWidth(next);
+      } else {
+        const next = Math.min(RIGHT_MAX, Math.max(RIGHT_MIN, startWidth - delta));
+        setRightWidth(next);
+      }
+    };
+
+    const onMouseUp = () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  }, [leftWidth, rightWidth]);
+
   const isTemplate = diagram.isTemplate || diagram.id.startsWith('template-');
 
   // Access permissions: exactly 1 ADMIN can edit or delete, VIEWERS are read-only
@@ -601,11 +639,22 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
       {/* Main Workspace: Left Palette + Canvas + Right Inspector */}
       <div className="flex flex-1 overflow-hidden relative">
         {/* Left Palette */}
-        <SidebarPalette
-          onAddNode={handleAddNode}
-          defaultCategory={diagram.category}
-          readOnly={!isAdmin}
-        />
+        <div style={{ width: leftWidth, flexShrink: 0 }} className="h-full">
+          <SidebarPalette
+            onAddNode={handleAddNode}
+            defaultCategory={diagram.category}
+            readOnly={!isAdmin}
+          />
+        </div>
+
+        {/* Left resize handle */}
+        <div
+          onMouseDown={startResize('left')}
+          className="w-1.5 shrink-0 h-full cursor-col-resize relative z-30 group"
+          title="Drag to resize"
+        >
+          <div className="absolute inset-y-0 left-1/2 -translate-x-1/2 w-px bg-slate-200 group-hover:bg-blue-400 group-active:bg-blue-500 transition-colors" />
+        </div>
 
         {/* Center React Flow Canvas */}
         <div ref={reactFlowWrapper} className="flex-1 h-full w-full relative">
@@ -665,19 +714,30 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
           </ReactFlow>
         </div>
 
+        {/* Right resize handle */}
+        <div
+          onMouseDown={startResize('right')}
+          className="w-1.5 shrink-0 h-full cursor-col-resize relative z-30 group"
+          title="Drag to resize"
+        >
+          <div className="absolute inset-y-0 left-1/2 -translate-x-1/2 w-px bg-slate-200 group-hover:bg-blue-400 group-active:bg-blue-500 transition-colors" />
+        </div>
+
         {/* Right Properties Panel */}
-        <PropertiesPanel
-          selectedNode={selectedNode}
-          selectedEdge={selectedEdge}
-          onUpdateNodeData={handleUpdateNodeData}
-          onUpdateEdgeData={handleUpdateEdgeData}
-          onDuplicateNode={handleDuplicateNode}
-          onDeleteNode={handleDeleteNode}
-          onDeleteEdge={handleDeleteEdge}
-          nodeCount={nodes.length}
-          edgeCount={edges.length}
-          readOnly={!isAdmin}
-        />
+        <div style={{ width: rightWidth, flexShrink: 0 }} className="h-full">
+          <PropertiesPanel
+            selectedNode={selectedNode}
+            selectedEdge={selectedEdge}
+            onUpdateNodeData={handleUpdateNodeData}
+            onUpdateEdgeData={handleUpdateEdgeData}
+            onDuplicateNode={handleDuplicateNode}
+            onDeleteNode={handleDeleteNode}
+            onDeleteEdge={handleDeleteEdge}
+            nodeCount={nodes.length}
+            edgeCount={edges.length}
+            readOnly={!isAdmin}
+          />
+        </div>
       </div>
 
       {isAdmin && (

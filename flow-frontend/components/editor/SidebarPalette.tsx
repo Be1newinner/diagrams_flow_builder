@@ -326,7 +326,7 @@ export function SidebarPalette({
   };
 
   return (
-    <aside className="w-72 bg-white border-r border-slate-200 flex flex-col h-full select-none z-20 shadow-2xs">
+    <aside className="w-full h-full bg-white border-r border-slate-200 flex flex-col select-none z-20 shadow-2xs">
       {/* Search Header */}
       <div className="p-3 border-b border-slate-100">
         <div className="relative">
