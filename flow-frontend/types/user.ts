@@ -4,6 +4,7 @@ export interface User {
   email: string;
   isVerified: boolean;
   avatarUrl?: string;
+  twoFactorEnabled?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -15,6 +16,7 @@ export interface UserDocument {
   passwordHash: string;
   isVerified: boolean;
   refreshToken?: string | null;
+  twoFactorEnabled?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -24,11 +26,17 @@ export interface AccessTokenPayload {
   email: string;
   name: string;
   type: 'access';
+  // Present only for tokens issued at login (not the long-lived MCP token,
+  // which predates session tracking and stays exempt from it — see
+  // resolveAuthUserId in lib/auth.ts). Identifies which session/device this
+  // token belongs to, for the active-sessions list and revocation.
+  jti?: string;
 }
 
 export interface RefreshTokenPayload {
   userId: string;
   type: 'refresh';
+  jti?: string;
 }
 
 export interface AuthResponse {
@@ -39,4 +47,5 @@ export interface AuthResponse {
   refreshToken?: string;
   error?: string;
   needsVerification?: boolean;
+  requiresTwoFactor?: boolean;
 }

@@ -28,6 +28,7 @@ import { DashboardHeader } from '@/components/dashboard/DashboardHeader';
 import { DiagramCard } from '@/components/dashboard/DiagramCard';
 import { CreateFlowModal } from '@/components/dashboard/CreateFlowModal';
 import { DeleteConfirmModal } from '@/components/dashboard/DeleteConfirmModal';
+import { CommandPalette } from '@/components/editor/CommandPalette';
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -228,7 +229,9 @@ export default function DashboardPage() {
 
       {/* Main Content Area */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Banner with stats & inspiration */}
+        {/* Banner with stats & inspiration — richer copy for a brand-new
+            user (0 diagrams of their own yet, so all they see below are the
+            3 built-in starter templates) than for a returning one. */}
         <div className="mb-8 p-6 rounded-2xl bg-white border border-slate-200/80 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
           <div className="space-y-1">
             <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-100">
@@ -236,10 +239,24 @@ export default function DashboardPage() {
               <span>Interactive Architecture Studio</span>
             </div>
             <h2 className="text-xl font-bold text-slate-900 tracking-tight">
-              Design Systems, Workflows & Database Relational Schemas
+              {userOwnedCount === 0
+                ? 'Welcome to FlowCraft — let’s build your first diagram'
+                : 'Design Systems, Workflows & Database Relational Schemas'}
             </h2>
             <p className="text-xs text-slate-500 max-w-2xl leading-relaxed">
-              Drag and drop cloud components, flowchart nodes, and SQL entity tables. Click any diagram below to start editing or create a new flow.
+              {userOwnedCount === 0 ? (
+                <>
+                  Drag and drop cloud components, flowchart nodes, sticky notes, and SQL entity tables
+                  onto a canvas — or start from one of the 3 sample templates below and duplicate it to
+                  make it yours. Press{' '}
+                  <kbd className="px-1 py-0.5 rounded bg-slate-100 border border-slate-200 font-mono text-[10px]">
+                    Ctrl/⌘+K
+                  </kbd>{' '}
+                  any time to jump between diagrams.
+                </>
+              ) : (
+                'Drag and drop cloud components, flowchart nodes, and SQL entity tables. Click any diagram below to start editing or create a new flow.'
+              )}
             </p>
           </div>
 
@@ -248,7 +265,7 @@ export default function DashboardPage() {
             className="inline-flex items-center gap-2 px-4 py-2.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-all shadow-sm shadow-blue-500/20 active:scale-95 shrink-0 cursor-pointer"
           >
             <Plus className="w-4 h-4" />
-            <span>Create New Flow</span>
+            <span>{userOwnedCount === 0 ? 'Create Your First Flow' : 'Create New Flow'}</span>
           </button>
         </div>
 
@@ -346,6 +363,8 @@ export default function DashboardPage() {
         onClose={() => setDiagramToDelete(null)}
         onConfirm={handleDeleteConfirm}
       />
+
+      <CommandPalette />
     </div>
   );
 }

@@ -19,17 +19,22 @@ export async function sendOtpEmail({
 }: {
   to: string;
   otp: string;
-  purpose: 'register' | 'reset-password';
+  purpose: 'register' | 'reset-password' | 'login-2fa';
   name?: string;
 }): Promise<void> {
   const isRegister = purpose === 'register';
+  const isTwoFactor = purpose === 'login-2fa';
   const subject = isRegister
     ? `${otp} is your FlowCraft registration code`
+    : isTwoFactor
+    ? `${otp} is your FlowCraft sign-in code`
     : `${otp} is your FlowCraft password reset code`;
 
-  const title = isRegister ? 'Verify Your Email' : 'Reset Your Password';
+  const title = isRegister ? 'Verify Your Email' : isTwoFactor ? 'Confirm Sign-In' : 'Reset Your Password';
   const subtitle = isRegister
     ? `Welcome to FlowCraft${name ? `, ${name}` : ''}! Use the verification code below to activate your account.`
+    : isTwoFactor
+    ? `Two-factor authentication is enabled on your account. Enter the code below to finish signing in.`
     : `We received a request to reset the password for your FlowCraft account.`;
 
   const html = `

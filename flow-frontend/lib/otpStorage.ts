@@ -1,11 +1,11 @@
-import clientPromise from '@/lib/mongodb';
 import fs from 'fs';
 import path from 'path';
+import { redis, isRedisConfigured } from '@/lib/redis';
 
 export interface OtpRecord {
   email: string;
   otp: string;
-  purpose: 'register' | 'reset-password';
+  purpose: 'register' | 'reset-password' | 'login-2fa';
   metadata?: {
     name?: string;
     passwordHash?: string;
@@ -14,6 +14,23 @@ export interface OtpRecord {
   createdAt: Date;
 }
 
+// OTPs are short-lived, single-purpose, and looked up by exact key — the
+// textbook case for a TTL'd Redis value instead of a Mongo collection.
+// Redis handles the expiry itself (no manual expireAfterSeconds index or
+// cleanup job, unlike the old Mongo path), and SET-with-expiry on the same
+// key naturally replaces any prior pending OTP for that email+purpose.
+function otpKey(email: string, purpose: string): string {
+  return `otp:${purpose}:${email}`;
+}
+
+interface StoredOtp {
+  otp: string;
+  metadata?: OtpRecord['metadata'];
+  createdAt: string;
+}
+
+// --- Local file fallback, used only when Redis isn't configured (e.g. local
+// dev without Upstash env vars set) ---
 const LOCAL_OTP_FILE = path.join(process.cwd(), 'data', 'otps.json');
 
 function ensureLocalDir() {
@@ -44,19 +61,6 @@ function saveLocalOtps(otps: OtpRecord[]) {
   fs.writeFileSync(LOCAL_OTP_FILE, JSON.stringify(otps, null, 2));
 }
 
-let ttlIndexEnsured = false;
-async function ensureTtlIndex() {
-  if (ttlIndexEnsured || !process.env.MONGODB_URI) return;
-  try {
-    const client = await clientPromise;
-    const db = client.db('flowcraft');
-    await db.collection('otps').createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
-    ttlIndexEnsured = true;
-  } catch (err) {
-    console.error('[MongoDB Error] ensureTtlIndex:', err);
-  }
-}
-
 export async function saveOtp({
   email,
   otp,
@@ -66,7 +70,7 @@ export async function saveOtp({
 }: {
   email: string;
   otp: string;
-  purpose: 'register' | 'reset-password';
+  purpose: 'register' | 'reset-password' | 'login-2fa';
   metadata?: {
     name?: string;
     passwordHash?: string;
@@ -75,32 +79,20 @@ export async function saveOtp({
 }): Promise<void> {
   const normalizedEmail = email.trim().toLowerCase();
   const now = new Date();
-  const expiresAt = new Date(now.getTime() + expiryMinutes * 60 * 1000);
 
-  const record: OtpRecord = {
-    email: normalizedEmail,
-    otp,
-    purpose,
-    metadata,
-    expiresAt,
-    createdAt: now,
-  };
-
-  if (process.env.MONGODB_URI) {
+  if (isRedisConfigured() && redis) {
     try {
-      await ensureTtlIndex();
-      const client = await clientPromise;
-      const db = client.db('flowcraft');
-      // Remove any prior pending OTP for this email and purpose
-      await db.collection('otps').deleteMany({ email: normalizedEmail, purpose });
-      await db.collection('otps').insertOne(record as any);
+      const value: StoredOtp = { otp, metadata, createdAt: now.toISOString() };
+      await redis.set(otpKey(normalizedEmail, purpose), value, { ex: expiryMinutes * 60 });
       return;
     } catch (err) {
-      console.error('[MongoDB Error] saveOtp fallback to file:', err);
+      console.error('[Redis Error] saveOtp fallback to file:', err);
     }
   }
 
   // File fallback
+  const expiresAt = new Date(now.getTime() + expiryMinutes * 60 * 1000);
+  const record: OtpRecord = { email: normalizedEmail, otp, purpose, metadata, expiresAt, createdAt: now };
   const list = getLocalOtps().filter((o) => !(o.email === normalizedEmail && o.purpose === purpose));
   list.push(record);
   saveLocalOtps(list);
@@ -113,38 +105,31 @@ export async function verifyAndConsumeOtp({
 }: {
   email: string;
   otp: string;
-  purpose: 'register' | 'reset-password';
+  purpose: 'register' | 'reset-password' | 'login-2fa';
 }): Promise<{ success: boolean; error?: string; metadata?: OtpRecord['metadata'] }> {
   const normalizedEmail = email.trim().toLowerCase();
   const trimmedOtp = otp.trim();
 
-  if (process.env.MONGODB_URI) {
+  if (isRedisConfigured() && redis) {
     try {
-      const client = await clientPromise;
-      const db = client.db('flowcraft');
-      const found: any = await db.collection('otps').findOne({
-        email: normalizedEmail,
-        purpose,
-      });
+      const key = otpKey(normalizedEmail, purpose);
+      const data = await redis.get<StoredOtp>(key);
 
-      if (!found) {
+      if (!data) {
         return { success: false, error: 'Verification code expired or not found. Please request a new code.' };
       }
 
-      if (new Date() > new Date(found.expiresAt)) {
-        await db.collection('otps').deleteOne({ _id: found._id });
-        return { success: false, error: 'Verification code has expired. Please request a new code.' };
-      }
-
-      if (found.otp !== trimmedOtp) {
+      if (data.otp !== trimmedOtp) {
+        // Wrong code: leave the pending OTP in place so the user can retry
+        // until it actually expires, matching the previous Mongo behavior.
         return { success: false, error: 'Invalid verification code. Please check and try again.' };
       }
 
       // Valid OTP: delete it immediately so it cannot be reused
-      await db.collection('otps').deleteOne({ _id: found._id });
-      return { success: true, metadata: found.metadata };
+      await redis.del(key);
+      return { success: true, metadata: data.metadata };
     } catch (err) {
-      console.error('[MongoDB Error] verifyAndConsumeOtp fallback:', err);
+      console.error('[Redis Error] verifyAndConsumeOtp fallback:', err);
     }
   }
 

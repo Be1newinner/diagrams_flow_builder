@@ -4,6 +4,14 @@ import { Diagram, DiagramUserAccess } from '@/types/diagram';
 import { STARTER_TEMPLATES } from './templates';
 import clientPromise from './mongodb';
 import { publishDiagramUpdate } from './ably';
+import {
+  getCachedDiagram,
+  setCachedDiagram,
+  deleteCachedDiagram,
+  getCachedDiagramList,
+  setCachedDiagramList,
+  invalidateDiagramListCache,
+} from './diagramCache';
 
 const DATA_DIR = path.resolve(process.cwd(), '../data');
 const DATA_FILE = path.join(DATA_DIR, 'diagrams.json');
@@ -83,6 +91,11 @@ export async function getServerDiagrams(userId?: string | null): Promise<Diagram
     return STARTER_TEMPLATES;
   }
 
+  const cached = await getCachedDiagramList(userId);
+  if (cached) {
+    return cached;
+  }
+
   if (process.env.MONGODB_URI) {
     try {
       const client = await clientPromise;
@@ -116,16 +129,18 @@ export async function getServerDiagrams(userId?: string | null): Promise<Diagram
       const existingIds = new Set(userDocs.map((d) => d.id));
       const missingTemplates = STARTER_TEMPLATES.filter((t) => !existingIds.has(t.id));
 
-      return [...userDocs, ...missingTemplates].sort(
+      const result = [...userDocs, ...missingTemplates].sort(
         (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
       );
+      setCachedDiagramList(userId, result);
+      return result;
     } catch (err) {
       console.error('[MongoDB Error] Falling back to file storage:', err);
     }
   }
 
   const list = getFileDiagrams();
-  return list
+  const result = list
     .filter(
       (d) =>
         d.userId === userId ||
@@ -140,16 +155,46 @@ export async function getServerDiagrams(userId?: string | null): Promise<Diagram
       return d;
     })
     .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+  setCachedDiagramList(userId, result);
+  return result;
+}
+
+// Applies the same ADMIN/VIEWER/template access check regardless of whether
+// the raw document came from cache, Mongo, or the file fallback — caching
+// only ever substitutes for the fetch, never for this check.
+function withAccessCheck(diagram: Diagram, userId?: string | null): Diagram | null {
+  if (diagram.isTemplate || diagram.id.startsWith('template-')) {
+    return diagram;
+  }
+
+  const hasAccess =
+    !!userId && (diagram.userId === userId || diagram.users?.some((u) => u.userId === userId));
+
+  if (!hasAccess) return null;
+
+  if (!diagram.users || diagram.users.length === 0) {
+    diagram.users = diagram.userId ? [{ userId: diagram.userId, accesstype: 'ADMIN' }] : [];
+  }
+  return diagram;
 }
 
 export async function getServerDiagram(id: string, userId?: string | null): Promise<Diagram | null> {
-  // 1. Check starter templates first (always viewable)
+  // 1. Check starter templates first (always viewable, never cached — they're
+  // static in-memory constants already)
   const template = STARTER_TEMPLATES.find((t) => t.id === id);
   if (template) {
     return {
       ...template,
       users: [{ userId: 'system', accesstype: 'ADMIN' }],
     };
+  }
+
+  // 2. Cache — the hot path for repeat reads of the same diagram (flow page
+  // loads, drift polls, MCP tool calls). Miss falls through to Mongo/file
+  // exactly as before.
+  const cached = await getCachedDiagram(id);
+  if (cached) {
+    return withAccessCheck(cached, userId);
   }
 
   if (process.env.MONGODB_URI) {
@@ -159,25 +204,8 @@ export async function getServerDiagram(id: string, userId?: string | null): Prom
       const doc = await db.collection<Diagram>('diagrams').findOne({ id });
       if (doc) {
         const { _id, ...diagram } = doc as any;
-        // Templates are public to view
-        if (diagram.isTemplate || diagram.id?.startsWith('template-')) {
-          return diagram as Diagram;
-        }
-
-        // Accessible if user is owner OR user is in users[]
-        const hasAccess =
-          userId &&
-          (diagram.userId === userId || diagram.users?.some((u: DiagramUserAccess) => u.userId === userId));
-
-        if (hasAccess) {
-          if (!diagram.users || diagram.users.length === 0) {
-            diagram.users = diagram.userId ? [{ userId: diagram.userId, accesstype: 'ADMIN' }] : [];
-          }
-          return diagram as Diagram;
-        }
-
-        // Mismatch: diagram belongs to someone else
-        return null;
+        setCachedDiagram(diagram as Diagram);
+        return withAccessCheck(diagram as Diagram, userId);
       }
     } catch (err) {
       console.error('[MongoDB Error] getServerDiagram fallback:', err);
@@ -187,14 +215,8 @@ export async function getServerDiagram(id: string, userId?: string | null): Prom
   const list = getFileDiagrams();
   const found = list.find((d) => d.id === id);
   if (!found) return null;
-  if (found.isTemplate || found.id.startsWith('template-')) return found;
-  if (userId && (found.userId === userId || found.users?.some((u) => u.userId === userId))) {
-    if (!found.users || found.users.length === 0) {
-      found.users = found.userId ? [{ userId: found.userId, accesstype: 'ADMIN' }] : [];
-    }
-    return found;
-  }
-  return null;
+  setCachedDiagram(found);
+  return withAccessCheck(found, userId);
 }
 
 export const MAX_DIAGRAMS_PER_USER = 30;
@@ -291,6 +313,15 @@ export async function saveServerDiagram(
   // Also sync to local file for backup/offline
   saveFileDiagram(updated);
 
+  // Write-through the cache with the value we just persisted, rather than
+  // just invalidating it — the very next read (often milliseconds later,
+  // e.g. this same save's own PUT response, or another tab's drift poll)
+  // gets a cache hit instead of a guaranteed-miss round trip back to Mongo.
+  setCachedDiagram(updated);
+  // The list view's sort order and content depend on this diagram, so its
+  // cached list is no longer valid — simpler to drop it than merge in place.
+  invalidateDiagramListCache(adminId);
+
   // Notify anyone with this diagram open — another tab, another user, or an
   // MCP tool client — right away instead of making them poll for it. This is
   // the single choke point every save path (PUT route, POST route, and every
@@ -331,5 +362,10 @@ export async function deleteServerDiagram(id: string, userId: string): Promise<b
   }
 
   const deletedFromFile = deleteFileDiagram(id);
-  return deletedFromMongo || deletedFromFile;
+  const deleted = deletedFromMongo || deletedFromFile;
+  if (deleted) {
+    deleteCachedDiagram(id);
+    invalidateDiagramListCache(userId);
+  }
+  return deleted;
 }

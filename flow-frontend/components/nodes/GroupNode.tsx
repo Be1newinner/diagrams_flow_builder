@@ -19,9 +19,12 @@ function GroupNodeComponent({ data, selected }: NodeProps) {
 
   return (
     <div
-      className={`min-w-[280px] min-h-[180px] w-full h-full rounded-xl border-2 border-dashed ${style.border} ${style.bg} relative transition-all duration-150 ${
+      className={`min-w-[280px] min-h-[180px] w-full h-full rounded-xl border-2 border-dashed ${style.border} ${
+        nodeData.bgColor ? '' : style.bg
+      } relative transition-all duration-150 ${
         selected ? 'ring-2 ring-blue-400 border-blue-500 border-solid shadow-md' : ''
       }`}
+      style={{ backgroundColor: nodeData.bgColor }}
     >
       <NodeResizer
         minWidth={200}

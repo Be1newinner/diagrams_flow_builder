@@ -1,7 +1,7 @@
 'use client';
 
 import React, { memo } from 'react';
-import { Handle, Position, NodeProps } from '@xyflow/react';
+import { Handle, Position, NodeProps, NodeResizer } from '@xyflow/react';
 import { FlowchartNodeData } from '@/types/diagram';
 
 const THEME_COLORS: Record<string, { border: string; bg: string; text: string; ring: string }> = {
@@ -21,7 +21,16 @@ function FlowchartNodeComponent({ data, selected }: NodeProps) {
 
   if (shape === 'decision') {
     return (
-      <div className="relative w-36 h-36 flex items-center justify-center">
+      <div className="relative w-full h-full min-w-[140px] min-h-[140px] flex items-center justify-center">
+        <NodeResizer
+          minWidth={140}
+          minHeight={140}
+          isVisible={selected}
+          keepAspectRatio
+          lineClassName="border-amber-400"
+          handleClassName="h-2.5 w-2.5 bg-white border-2 border-amber-500 rounded"
+        />
+
         {/* Handles on the diamond points */}
         <Handle
           type="target"
@@ -53,10 +62,11 @@ function FlowchartNodeComponent({ data, selected }: NodeProps) {
           className={`absolute inset-3 rotate-45 bg-white ${theme.border} border-2 rounded-md shadow-sm transition-all duration-150 ${
             selected ? 'border-amber-500 shadow-md ring-2 ring-amber-400/40' : ''
           }`}
+          style={{ backgroundColor: nodeData.bgColor }}
         />
 
         {/* Content Container (un-rotated) */}
-        <div className="relative z-10 p-3 text-center max-w-[100px]">
+        <div className="relative z-10 p-3 text-center max-w-[70%]">
           <p className="text-xs font-semibold text-slate-800 leading-tight">
             {nodeData.label || 'Decision?'}
           </p>
@@ -73,10 +83,18 @@ function FlowchartNodeComponent({ data, selected }: NodeProps) {
   if (shape === 'start-end') {
     return (
       <div
-        className={`relative min-w-[170px] px-5 py-2.5 bg-white rounded-full border-2 text-center transition-all duration-150 shadow-sm ${
+        className={`relative w-full h-full min-w-[170px] min-h-[60px] flex flex-col items-center justify-center px-5 py-2.5 bg-white rounded-full border-2 text-center transition-all duration-150 shadow-sm ${
           theme.border
         } ${selected ? 'border-blue-500 shadow-md ring-2 ring-blue-400/40' : ''}`}
+        style={{ backgroundColor: nodeData.bgColor }}
       >
+        <NodeResizer
+          minWidth={170}
+          minHeight={60}
+          isVisible={selected}
+          lineClassName="border-blue-400"
+          handleClassName="h-2.5 w-2.5 bg-white border-2 border-blue-500 rounded"
+        />
         <Handle type="target" position={Position.Top} id="top" className="!w-2.5 !h-2.5 !bg-blue-500 !border-2 !border-white" />
         <Handle type="source" position={Position.Right} id="right" className="!w-2.5 !h-2.5 !bg-blue-500 !border-2 !border-white" />
         <Handle type="source" position={Position.Bottom} id="bottom" className="!w-2.5 !h-2.5 !bg-blue-500 !border-2 !border-white" />
@@ -96,16 +114,24 @@ function FlowchartNodeComponent({ data, selected }: NodeProps) {
 
   if (shape === 'input-output') {
     return (
-      <div className="relative">
+      <div className="relative w-full h-full min-w-[180px] min-h-[70px]">
+        <NodeResizer
+          minWidth={180}
+          minHeight={70}
+          isVisible={selected}
+          lineClassName="border-cyan-400"
+          handleClassName="h-2.5 w-2.5 bg-white border-2 border-cyan-500 rounded"
+        />
         <Handle type="target" position={Position.Top} id="top" className="!w-2.5 !h-2.5 !bg-cyan-500 !border-2 !border-white" />
         <Handle type="source" position={Position.Right} id="right" className="!w-2.5 !h-2.5 !bg-cyan-500 !border-2 !border-white" />
         <Handle type="source" position={Position.Bottom} id="bottom" className="!w-2.5 !h-2.5 !bg-cyan-500 !border-2 !border-white" />
         <Handle type="target" position={Position.Left} id="left" className="!w-2.5 !h-2.5 !bg-cyan-500 !border-2 !border-white" />
 
         <div
-          className={`-skew-x-12 min-w-[180px] bg-white rounded-md border-2 px-5 py-3 transition-all duration-150 shadow-sm ${
+          className={`-skew-x-12 w-full h-full flex flex-col items-center justify-center bg-white rounded-md border-2 px-5 py-3 transition-all duration-150 shadow-sm ${
             theme.border
           } ${selected ? 'border-cyan-500 shadow-md ring-2 ring-cyan-400/40' : ''}`}
+          style={{ backgroundColor: nodeData.bgColor }}
         >
           <div className="skew-x-12 text-center">
             <div className="font-semibold text-xs text-slate-800 truncate">
@@ -125,10 +151,18 @@ function FlowchartNodeComponent({ data, selected }: NodeProps) {
   // Default: Process (Rectangle)
   return (
     <div
-      className={`relative min-w-[190px] max-w-[240px] bg-white rounded-lg border-2 p-3 text-center transition-all duration-150 shadow-sm ${
+      className={`relative w-full h-full min-w-[190px] min-h-[70px] bg-white rounded-lg border-2 p-3 text-center transition-all duration-150 shadow-sm ${
         theme.border
       } ${selected ? 'border-blue-500 shadow-md ring-2 ring-blue-400/40' : ''}`}
+      style={{ backgroundColor: nodeData.bgColor }}
     >
+      <NodeResizer
+        minWidth={190}
+        minHeight={70}
+        isVisible={selected}
+        lineClassName="border-blue-400"
+        handleClassName="h-2.5 w-2.5 bg-white border-2 border-blue-500 rounded"
+      />
       <Handle type="target" position={Position.Top} id="top" className="!w-2.5 !h-2.5 !bg-blue-500 !border-2 !border-white" />
       <Handle type="source" position={Position.Right} id="right" className="!w-2.5 !h-2.5 !bg-blue-500 !border-2 !border-white" />
       <Handle type="source" position={Position.Bottom} id="bottom" className="!w-2.5 !h-2.5 !bg-blue-500 !border-2 !border-white" />

@@ -28,6 +28,7 @@ export interface SystemNodeData {
   status?: string;
   themeColor?: 'blue' | 'indigo' | 'emerald' | 'amber' | 'purple' | 'rose' | 'cyan' | 'slate';
   port?: string;
+  bgColor?: string;
   [key: string]: unknown;
 }
 
@@ -36,6 +37,7 @@ export interface FlowchartNodeData {
   description?: string;
   shape: 'start-end' | 'process' | 'decision' | 'input-output' | 'document' | 'delay';
   themeColor?: 'blue' | 'emerald' | 'amber' | 'purple' | 'rose' | 'slate' | 'cyan';
+  bgColor?: string;
   [key: string]: unknown;
 }
 
@@ -43,12 +45,14 @@ export interface ERTableNodeData {
   tableName: string;
   columns: ERColumn[];
   headerColor?: 'blue' | 'indigo' | 'emerald' | 'amber' | 'purple' | 'rose' | 'slate';
+  bgColor?: string;
   [key: string]: unknown;
 }
 
 export interface GroupNodeData {
   label: string;
   stylePreset?: 'slate' | 'blue' | 'emerald' | 'amber' | 'purple' | 'rose';
+  bgColor?: string;
   width?: number;
   height?: number;
   [key: string]: unknown;
@@ -58,6 +62,15 @@ export interface StickyNodeData {
   title?: string;
   text: string;
   color: 'yellow' | 'blue' | 'green' | 'pink' | 'purple';
+  bgColor?: string;
+  [key: string]: unknown;
+}
+
+export interface ImageNodeData {
+  src: string;
+  alt?: string;
+  bgColor?: string;
+  fit?: 'contain' | 'cover' | 'fill';
   [key: string]: unknown;
 }
 

@@ -30,6 +30,7 @@ export function AuthModal() {
     openRegisterModal,
     openForgotPasswordModal,
     login,
+    verifyLoginOtp,
     sendRegisterOtp,
     verifyRegisterOtp,
     sendForgotPasswordOtp,
@@ -93,6 +94,13 @@ export function AuthModal() {
           await sendRegisterOtp('User', email.trim(), password);
           setSuccessMessage(`Your email has not been verified yet. A 6-digit code was sent to ${email.trim()}.`);
           setAuthModalMode('verify-register');
+          setResendCooldown(30);
+          return;
+        }
+        if (res.requiresTwoFactor) {
+          setOtp('');
+          setSuccessMessage(`Two-factor authentication is enabled. A 6-digit code was sent to ${email.trim()}.`);
+          setAuthModalMode('verify-login-2fa');
           setResendCooldown(30);
           return;
         }
@@ -161,6 +169,32 @@ export function AuthModal() {
       const res = await verifyRegisterOtp(email.trim(), otp.trim());
       if (!res.success) {
         setErrorMessage(res.error || 'Invalid or expired verification code.');
+      } else {
+        resetForm();
+      }
+    } catch (err: any) {
+      setErrorMessage(err.message || 'An unexpected error occurred.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // 3b. Handle Verify Login 2FA OTP
+  const handleVerifyLoginOtpSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMessage(null);
+    setSuccessMessage(null);
+
+    if (otp.trim().length !== 6) {
+      setErrorMessage('Please enter the complete 6-digit code.');
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const res = await verifyLoginOtp(email.trim(), otp.trim());
+      if (!res.success) {
+        setErrorMessage(res.error || 'Invalid or expired code.');
       } else {
         resetForm();
       }
@@ -256,6 +290,17 @@ export function AuthModal() {
           setSuccessMessage(`New reset code sent to ${email.trim()}`);
           setResendCooldown(30);
         } else {
+          setErrorMessage(res.error || 'Failed to resend code.');
+        }
+      } else if (authModalMode === 'verify-login-2fa') {
+        // Re-running login re-triggers the 2FA OTP send (password is still
+        // correct and twoFactorEnabled is still true, so it takes the same
+        // branch again) without needing a separate "resend" endpoint.
+        const res = await login(email.trim(), password);
+        if (res.requiresTwoFactor) {
+          setSuccessMessage(`New code sent to ${email.trim()}`);
+          setResendCooldown(30);
+        } else if (!res.success) {
           setErrorMessage(res.error || 'Failed to resend code.');
         }
       }
@@ -732,6 +777,82 @@ export function AuthModal() {
                   )}
                 </button>
               </div>
+            </form>
+
+            <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
+              <span className="text-slate-400">Didn&apos;t get the code?</span>
+              <button
+                type="button"
+                onClick={handleResendOtp}
+                disabled={resendCooldown > 0 || isSubmitting}
+                className="text-blue-600 hover:text-blue-700 font-semibold disabled:text-slate-400 disabled:cursor-not-allowed flex items-center gap-1 cursor-pointer"
+              >
+                <RefreshCw className={`w-3 h-3 ${isSubmitting ? 'animate-spin' : ''}`} />
+                <span>{resendCooldown > 0 ? `Resend in ${resendCooldown}s` : 'Resend Code'}</span>
+              </button>
+            </div>
+          </div>
+        )}
+
+        {authModalMode === 'verify-login-2fa' && (
+          <div className="p-6">
+            <button
+              type="button"
+              onClick={() => {
+                setErrorMessage(null);
+                setSuccessMessage(null);
+                setAuthModalMode('login');
+              }}
+              className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-slate-800 mb-3 font-medium cursor-pointer"
+            >
+              <ArrowLeft className="w-3 h-3" />
+              <span>Back to sign in</span>
+            </button>
+
+            <div className="mb-5 flex items-start gap-2.5">
+              <div className="w-9 h-9 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+                <ShieldCheck className="w-4.5 h-4.5" />
+              </div>
+              <div>
+                <h2 className="text-lg font-bold text-slate-900">Two-Factor Verification</h2>
+                <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                  Enter the 6-digit code sent to <strong className="text-slate-800 font-semibold">{email}</strong>{' '}
+                  to finish signing in.
+                </p>
+              </div>
+            </div>
+
+            <form onSubmit={handleVerifyLoginOtpSubmit} className="space-y-3.5">
+              <div>
+                <input
+                  type="text"
+                  required
+                  maxLength={6}
+                  value={otp}
+                  onChange={(e) => setOtp(e.target.value.replace(/\D/g, ''))}
+                  placeholder="••••••"
+                  className="w-full text-center text-2xl tracking-[12px] font-mono py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-900 placeholder:tracking-normal placeholder:font-sans placeholder:text-slate-300 font-bold"
+                  autoFocus
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={isSubmitting || otp.length !== 6}
+                className="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 disabled:opacity-50 text-white text-xs font-semibold rounded-xl shadow-xs transition-colors flex items-center justify-center gap-2 cursor-pointer"
+              >
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Verifying...</span>
+                  </>
+                ) : (
+                  <>
+                    <ShieldCheck className="w-3.5 h-3.5" />
+                    <span>Verify & Sign In</span>
+                  </>
+                )}
+              </button>
             </form>
 
             <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs">

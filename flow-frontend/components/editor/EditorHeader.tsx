@@ -30,9 +30,11 @@ import {
 import { useAuth } from '@/context/AuthContext';
 import { Diagram, DiagramCategory } from '@/types/diagram';
 import { FlowCraftLogo } from '@/components/brand/FlowCraftLogo';
+import { colorForId } from '@/components/editor/CollaboratorCursors';
 
 interface EditorHeaderProps {
   diagram: Diagram;
+  collaborators?: Record<string, { name: string }>;
   onUpdateTitle: (title: string) => void;
   onUpdateCategory: (category: DiagramCategory) => void;
   isSaving: boolean;
@@ -64,6 +66,7 @@ interface EditorHeaderProps {
 
 export function EditorHeader({
   diagram,
+  collaborators = {},
   onUpdateTitle,
   onUpdateCategory,
   isSaving,
@@ -214,6 +217,29 @@ export function EditorHeader({
               </>
             )}
           </div>
+
+          {/* Presence: who else has this diagram open right now */}
+          {Object.keys(collaborators).length > 0 && (
+            <div className="hidden md:flex items-center -space-x-1.5" title="Currently viewing">
+              {Object.entries(collaborators)
+                .slice(0, 4)
+                .map(([id, c]) => (
+                  <div
+                    key={id}
+                    className="w-6 h-6 rounded-full border-2 border-white text-white flex items-center justify-center text-[10px] font-bold shadow-sm"
+                    style={{ backgroundColor: colorForId(id) }}
+                    title={c.name}
+                  >
+                    {c.name.charAt(0).toUpperCase()}
+                  </div>
+                ))}
+              {Object.keys(collaborators).length > 4 && (
+                <div className="w-6 h-6 rounded-full border-2 border-white bg-slate-400 text-white flex items-center justify-center text-[9px] font-bold shadow-sm">
+                  +{Object.keys(collaborators).length - 4}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Manual save button — flushes the current state immediately
               instead of waiting out the autosave debounce. Same save path

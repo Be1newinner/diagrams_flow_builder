@@ -7,6 +7,7 @@ import {
   setAccessTokenCookie,
 } from '@/lib/auth';
 import { findUserById, sanitizeUser } from '@/lib/userStorage';
+import { isSessionActive } from '@/lib/sessionStore';
 
 export async function GET(request: Request) {
   try {
@@ -23,7 +24,7 @@ export async function GET(request: Request) {
     // 1. Check Access Token (valid 1 day)
     if (accessToken) {
       const payload = verifyAccessToken(accessToken);
-      if (payload && payload.userId) {
+      if (payload && payload.userId && (!payload.jti || (await isSessionActive(payload.userId, payload.jti)))) {
         const user = await findUserById(payload.userId);
         if (user && user.isVerified === true) {
           return NextResponse.json({
@@ -34,15 +35,23 @@ export async function GET(request: Request) {
       }
     }
 
-    // 2. Access token missing or expired - check Refresh Token (valid 28 days)
+    // 2. Access token missing/expired/revoked - check Refresh Token (valid 28 days)
     const refreshToken = cookies.refreshToken;
     if (refreshToken) {
       const refreshPayload = verifyRefreshToken(refreshToken);
-      if (refreshPayload && refreshPayload.userId) {
+      if (
+        refreshPayload &&
+        refreshPayload.userId &&
+        (!refreshPayload.jti || (await isSessionActive(refreshPayload.userId, refreshPayload.jti)))
+      ) {
         const user = await findUserById(refreshPayload.userId);
-        if (user && user.refreshToken === refreshToken && user.isVerified === true) {
-          // Auto-renew 1-day access token seamlessly
-          const newAccessToken = generateAccessToken({ id: user.id, email: user.email, name: user.name });
+        if (user && user.isVerified === true) {
+          // Auto-renew 1-day access token seamlessly, carrying the same
+          // session id forward so it stays subject to revocation.
+          const newAccessToken = generateAccessToken(
+            { id: user.id, email: user.email, name: user.name },
+            refreshPayload.jti
+          );
           await setAccessTokenCookie(newAccessToken);
 
           return NextResponse.json({

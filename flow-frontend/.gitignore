@@ -39,3 +39,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# local file-fallback storage (used only when Mongo/Redis are unreachable)
+/data/

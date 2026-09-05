@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useRef } from 'react';
+import React, { useRef, useState } from 'react';
 import Link from 'next/link';
 import {
   Plus,
@@ -17,10 +17,12 @@ import {
   LogOut,
   User as UserIcon,
   Terminal,
+  ShieldCheck,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { DiagramCategory } from '@/types/diagram';
 import { FlowCraftLogo } from '@/components/brand/FlowCraftLogo';
+import { SecuritySettingsModal } from '@/components/auth/SecuritySettingsModal';
 
 interface DashboardHeaderProps {
   searchQuery: string;
@@ -56,6 +58,7 @@ export function DashboardHeader({
 }: DashboardHeaderProps) {
   const { user, logout, openLoginModal, openRegisterModal } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [securityModalOpen, setSecurityModalOpen] = useState(false);
 
   const categories: { id: string; label: string; icon: React.ReactNode; count: number }[] = [
     { id: 'all', label: 'All Diagrams', icon: <Layers className="w-3.5 h-3.5" />, count: counts.total },
@@ -185,6 +188,14 @@ export function DashboardHeader({
                 </div>
 
                 <button
+                  onClick={() => setSecurityModalOpen(true)}
+                  className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
+                  title="Security settings"
+                >
+                  <ShieldCheck className="w-4 h-4" />
+                </button>
+
+                <button
                   onClick={logout}
                   className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
                   title="Sign Out"
@@ -278,6 +289,8 @@ export function DashboardHeader({
           </div>
         </div>
       </div>
+
+      <SecuritySettingsModal isOpen={securityModalOpen} onClose={() => setSecurityModalOpen(false)} />
     </header>
   );
 }

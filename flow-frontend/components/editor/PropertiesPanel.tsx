@@ -24,6 +24,7 @@ import {
   ChevronsDownUp,
   ChevronsUpDown,
   Ungroup,
+  Unlink,
 } from 'lucide-react';
 import {
   SystemNodeData,
@@ -48,6 +49,11 @@ interface PropertiesPanelProps {
   onSelectNode: (id: string) => void;
   onSelectEdge: (id: string) => void;
   onEjectGroupNodes: (groupId: string) => void;
+  onDisconnectNodeEdges: (nodeId: string) => void;
+  selectedNodes: Node[];
+  onBulkSetBgColor: (ids: string[], hex: string | undefined) => void;
+  onBulkDelete: (ids: string[]) => void;
+  onBulkDisconnectEdges: (ids: string[]) => void;
   nodeCount: number;
   edgeCount: number;
   readOnly?: boolean;
@@ -76,6 +82,28 @@ function nodeTypeLabel(node: Node): string {
       return node.type || 'Node';
   }
 }
+
+// A constrained set of common column types for the ER editor, to catch
+// typos ("VARHCAR", "interger") instead of accepting any free text. "Custom…"
+// escapes back to a plain text field for anything not on this list (sized
+// varchars aside from the default, composite types, enums, etc.) — a column
+// whose current value isn't one of these renders as that text field
+// automatically, no extra state needed to track "which mode is this row in."
+const COLUMN_TYPE_OPTIONS = [
+  'UUID',
+  'VARCHAR(255)',
+  'TEXT',
+  'INTEGER',
+  'BIGINT',
+  'SMALLINT',
+  'BOOLEAN',
+  'TIMESTAMPTZ',
+  'DATE',
+  'DECIMAL(10,2)',
+  'FLOAT',
+  'JSONB',
+];
+const CUSTOM_TYPE_SENTINEL = '__custom__';
 
 const COLOR_OPTIONS = [
   { id: 'blue', label: 'Blue', hex: '#3b82f6' },
@@ -120,6 +148,11 @@ export function PropertiesPanel({
   onSelectNode,
   onSelectEdge,
   onEjectGroupNodes,
+  onDisconnectNodeEdges,
+  selectedNodes,
+  onBulkSetBgColor,
+  onBulkDelete,
+  onBulkDisconnectEdges,
   nodeCount,
   edgeCount,
   readOnly = false,
@@ -175,6 +208,53 @@ export function PropertiesPanel({
     );
   }
 
+  // Case 0: Multi-Selection — bulk actions instead of a single node's form,
+  // since editing N nodes' individual fields at once doesn't make sense,
+  // but a shared background color, a bulk delete, and bulk disconnect do.
+  if (selectedNodes.length > 1) {
+    const ids = selectedNodes.map((n) => n.id);
+    return (
+      <aside className="w-full h-full bg-white border-l border-slate-200 flex flex-col select-none z-20 shadow-2xs">
+        {tabBar}
+        <div className="p-3.5 border-b border-slate-100 flex items-center gap-2">
+          <Sliders className="w-4 h-4 text-blue-600" />
+          <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+            {selectedNodes.length} Nodes Selected
+          </h3>
+        </div>
+        <fieldset disabled={readOnly} className={`flex-1 overflow-y-auto p-4 space-y-4 text-xs ${readOnly ? 'opacity-80' : ''}`}>
+          <BackgroundColorControl
+            label={`Background Color (all ${selectedNodes.length})`}
+            value={undefined}
+            onChange={(hex) => onBulkSetBgColor(ids, hex)}
+          />
+
+          <div className="pt-3 border-t border-slate-100 space-y-2">
+            <button
+              onClick={() => onBulkDisconnectEdges(ids)}
+              className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 transition-colors cursor-pointer"
+            >
+              <Unlink className="w-3.5 h-3.5" />
+              Disconnect All Edges
+            </button>
+            <button
+              onClick={() => onBulkDelete(ids)}
+              className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold bg-red-50 text-red-700 border border-red-200 hover:bg-red-100 transition-colors cursor-pointer"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              Delete {selectedNodes.length} Nodes
+            </button>
+          </div>
+
+          <p className="text-[10px] text-slate-400 leading-relaxed pt-2 border-t border-slate-100">
+            Use the alignment toolbar above the canvas to align, distribute, or match the size of these
+            nodes.
+          </p>
+        </fieldset>
+      </aside>
+    );
+  }
+
   // Case 1: Node Selected
   if (selectedNode) {
     const nodeType = selectedNode.type;
@@ -196,6 +276,10 @@ export function PropertiesPanel({
                 ? 'Flowchart Step'
                 : nodeType === 'stickyNode'
                 ? 'Sticky Note'
+                : nodeType === 'imageNode'
+                ? 'Image / Actor'
+                : nodeType === 'groupNode'
+                ? 'Group / Container'
                 : 'Node Inspector'}
             </h3>
           </div>
@@ -206,6 +290,13 @@ export function PropertiesPanel({
             </span>
           ) : (
             <div className="flex items-center gap-1">
+              <button
+                onClick={() => onDisconnectNodeEdges(selectedNode.id)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-amber-600 hover:bg-amber-50 transition-colors"
+                title="Disconnect all edges from this node (node itself is kept)"
+              >
+                <Unlink className="w-3.5 h-3.5" />
+              </button>
               <button
                 onClick={() => onDuplicateNode(selectedNode.id)}
                 className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
@@ -305,6 +396,11 @@ export function PropertiesPanel({
                   ))}
                 </div>
               </div>
+
+              <BackgroundColorControl
+                value={data.bgColor}
+                onChange={(hex) => onUpdateNodeData(selectedNode.id, { bgColor: hex })}
+              />
             </>
           )}
 
@@ -338,6 +434,11 @@ export function PropertiesPanel({
                   ))}
                 </div>
               </div>
+
+              <BackgroundColorControl
+                value={data.bgColor}
+                onChange={(hex) => onUpdateNodeData(selectedNode.id, { bgColor: hex })}
+              />
 
               {/* Columns List Manager */}
               <div className="pt-2 border-t border-slate-100">
@@ -393,17 +494,52 @@ export function PropertiesPanel({
                       </div>
 
                       <div className="flex items-center gap-2 text-[10px]">
-                        <input
-                          type="text"
-                          value={col.type}
-                          onChange={(e) => {
-                            const cols = [...(data.columns || [])];
-                            cols[idx] = { ...cols[idx], type: e.target.value };
-                            onUpdateNodeData(selectedNode.id, { columns: cols });
-                          }}
-                          placeholder="TYPE"
-                          className="w-24 px-1.5 py-0.5 bg-white border border-slate-200 rounded font-mono text-slate-700"
-                        />
+                        {COLUMN_TYPE_OPTIONS.includes(col.type) ? (
+                          <select
+                            value={col.type}
+                            onChange={(e) => {
+                              const cols = [...(data.columns || [])];
+                              const nextType = e.target.value === CUSTOM_TYPE_SENTINEL ? '' : e.target.value;
+                              cols[idx] = { ...cols[idx], type: nextType };
+                              onUpdateNodeData(selectedNode.id, { columns: cols });
+                            }}
+                            className="w-24 px-1.5 py-0.5 bg-white border border-slate-200 rounded font-mono text-slate-700"
+                          >
+                            {COLUMN_TYPE_OPTIONS.map((t) => (
+                              <option key={t} value={t}>
+                                {t}
+                              </option>
+                            ))}
+                            <option value={CUSTOM_TYPE_SENTINEL}>Custom…</option>
+                          </select>
+                        ) : (
+                          <div className="flex items-center gap-0.5">
+                            <input
+                              type="text"
+                              value={col.type}
+                              onChange={(e) => {
+                                const cols = [...(data.columns || [])];
+                                cols[idx] = { ...cols[idx], type: e.target.value };
+                                onUpdateNodeData(selectedNode.id, { columns: cols });
+                              }}
+                              placeholder="TYPE"
+                              autoFocus
+                              className="w-20 px-1.5 py-0.5 bg-white border border-blue-300 rounded font-mono text-slate-700"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const cols = [...(data.columns || [])];
+                                cols[idx] = { ...cols[idx], type: COLUMN_TYPE_OPTIONS[0] };
+                                onUpdateNodeData(selectedNode.id, { columns: cols });
+                              }}
+                              title="Back to type list"
+                              className="p-0.5 text-slate-400 hover:text-slate-700 rounded"
+                            >
+                              <ChevronDown className="w-3 h-3" />
+                            </button>
+                          </div>
+                        )}
 
                         {/* PK Button */}
                         <button
@@ -499,6 +635,11 @@ export function PropertiesPanel({
                   ))}
                 </div>
               </div>
+
+              <BackgroundColorControl
+                value={data.bgColor}
+                onChange={(hex) => onUpdateNodeData(selectedNode.id, { bgColor: hex })}
+              />
             </>
           )}
 
@@ -546,6 +687,12 @@ export function PropertiesPanel({
                   ))}
                 </div>
               </div>
+
+              <BackgroundColorControl
+                value={data.bgColor}
+                onChange={(hex) => onUpdateNodeData(selectedNode.id, { bgColor: hex })}
+                label="Custom Background (overrides tone above)"
+              />
             </>
           )}
 
@@ -579,6 +726,12 @@ export function PropertiesPanel({
                 </div>
               </div>
 
+              <BackgroundColorControl
+                value={data.bgColor}
+                onChange={(hex) => onUpdateNodeData(selectedNode.id, { bgColor: hex })}
+                label="Custom Background (overrides preset above)"
+              />
+
               <div className="pt-3 border-t border-slate-100">
                 <button
                   onClick={() => onEjectGroupNodes(selectedNode.id)}
@@ -594,6 +747,56 @@ export function PropertiesPanel({
                   touched — only their position changes.
                 </p>
               </div>
+            </>
+          )}
+
+          {/* Image / Actor Node Editor */}
+          {nodeType === 'imageNode' && (
+            <>
+              <div>
+                <label className="font-semibold text-slate-700 block mb-1">Image URL</label>
+                <input
+                  type="text"
+                  value={data.src || ''}
+                  onChange={(e) => onUpdateNodeData(selectedNode.id, { src: e.target.value })}
+                  placeholder="https://... or data:image/svg+xml,..."
+                  className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-mono text-[11px] text-slate-800 focus:outline-none focus:border-blue-500"
+                />
+                <p className="text-[10px] text-slate-400 mt-1">
+                  Any PNG, JPG, or SVG URL — including a pasted data: URI. Drag the corner handles on
+                  the canvas to resize once it&rsquo;s set.
+                </p>
+              </div>
+
+              <div>
+                <label className="font-semibold text-slate-700 block mb-1">Alt Text</label>
+                <input
+                  type="text"
+                  value={data.alt || ''}
+                  onChange={(e) => onUpdateNodeData(selectedNode.id, { alt: e.target.value })}
+                  placeholder="Describe the image"
+                  className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:border-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="font-semibold text-slate-700 block mb-1">Fit</label>
+                <select
+                  value={data.fit || 'contain'}
+                  onChange={(e) => onUpdateNodeData(selectedNode.id, { fit: e.target.value })}
+                  className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:border-blue-500"
+                >
+                  <option value="contain">Contain (keep aspect ratio, letterbox)</option>
+                  <option value="cover">Cover (fill box, may crop)</option>
+                  <option value="fill">Fill (stretch to box)</option>
+                </select>
+              </div>
+
+              <BackgroundColorControl
+                value={data.bgColor}
+                onChange={(hex) => onUpdateNodeData(selectedNode.id, { bgColor: hex })}
+                label="Backdrop Color (useful behind transparent PNGs)"
+              />
             </>
           )}
         </fieldset>
@@ -986,6 +1189,43 @@ function LayersList({
           })}
         </ul>
       )}
+    </div>
+  );
+}
+
+interface BackgroundColorControlProps {
+  value?: string;
+  onChange: (hex: string | undefined) => void;
+  label?: string;
+}
+
+// Shared "custom background color" control used across every node type's
+// editor — a raw hex override that sits on top of (and can be cleared back
+// to) whichever preset/theme color system that node type already has.
+function BackgroundColorControl({ value, onChange, label }: BackgroundColorControlProps) {
+  return (
+    <div>
+      <label className="font-semibold text-slate-700 block mb-1.5">
+        {label || 'Background Color'}
+      </label>
+      <div className="flex items-center gap-2">
+        <input
+          type="color"
+          value={value || '#ffffff'}
+          onChange={(e) => onChange(e.target.value)}
+          className="w-9 h-8 rounded-md border border-slate-200 cursor-pointer bg-white p-0.5"
+          title="Pick a custom background color"
+        />
+        <span className="text-[11px] font-mono text-slate-500">{value || 'default'}</span>
+        {value && (
+          <button
+            onClick={() => onChange(undefined)}
+            className="ml-auto text-[11px] text-slate-400 hover:text-slate-700 font-medium"
+          >
+            Reset
+          </button>
+        )}
+      </div>
     </div>
   );
 }

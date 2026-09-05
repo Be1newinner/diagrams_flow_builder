@@ -55,12 +55,16 @@ import { FlowchartNode } from '@/components/nodes/FlowchartNode';
 import { ERTableNode } from '@/components/nodes/ERTableNode';
 import { GroupNode } from '@/components/nodes/GroupNode';
 import { StickyNode } from '@/components/nodes/StickyNode';
+import { ImageNode } from '@/components/nodes/ImageNode';
 import { CustomEdge } from '@/components/edges/CustomEdge';
 
 import { EditorHeader } from '@/components/editor/EditorHeader';
 import { SidebarPalette } from '@/components/editor/SidebarPalette';
 import { PropertiesPanel } from '@/components/editor/PropertiesPanel';
 import { AiAssistantModal } from '@/components/editor/AiAssistantModal';
+import { AlignmentToolbar } from '@/components/editor/AlignmentToolbar';
+import { CollaboratorCursors } from '@/components/editor/CollaboratorCursors';
+import { CommandPalette, CommandPaletteAction } from '@/components/editor/CommandPalette';
 
 const nodeTypes = {
   systemNode: SystemNode,
@@ -68,6 +72,7 @@ const nodeTypes = {
   erTableNode: ERTableNode,
   groupNode: GroupNode,
   stickyNode: StickyNode,
+  imageNode: ImageNode,
 };
 
 const edgeTypes = {
@@ -86,6 +91,10 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
 
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
   const [selectedEdge, setSelectedEdge] = useState<Edge | null>(null);
+  // Full multi-selection, for the alignment toolbar and bulk actions.
+  // selectedNode above stays "the first selected node" for the single-node
+  // Properties view — this is additive, not a replacement.
+  const [selectedNodes, setSelectedNodes] = useState<Node[]>([]);
 
   const [isSaving, setIsSaving] = useState(false);
   const [gridType, setGridType] = useState<'dots' | 'lines' | 'cross' | 'none'>(
@@ -210,6 +219,18 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
     [onEdgesChange]
   );
 
+  // True for the exact window between calling saveDiagram() and its promise
+  // settling. The Ably 'updated' push for THIS save can arrive from the
+  // server before that promise resolves and updates diagramUpdatedAtRef (see
+  // the ref-sync effect below) — during that gap, isDirtyRef is still true
+  // and the push looks exactly like an external edit, which was showing a
+  // false "Changed elsewhere" conflict banner even for a single solo editor.
+  // Any push that arrives while our own save is still in flight is
+  // effectively certain to be that save's own echo, so it's ignored here;
+  // genuine conflicts are still fully caught by the 409 baseVersion check
+  // performSave itself goes through.
+  const saveInFlightRef = useRef(false);
+
   // The actual save, shared by the debounced autosave effect below and by
   // the manual "Save this version" button — both must save identically
   // (same payload, same conflict handling), the button just skips the wait.
@@ -217,6 +238,7 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
     if (isTemplate || !isAdmin) return;
     if (!isDirtyRef.current) return;
     setIsSaving(true);
+    saveInFlightRef.current = true;
     const updated: Diagram = {
       ...diagram,
       nodes,
@@ -231,6 +253,7 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
     };
     saveDiagram(updated, user?.id).then((result) => {
       setIsSaving(false);
+      saveInFlightRef.current = false;
       if (result.status === 'ok' || result.status === 'created') {
         isDirtyRef.current = false;
         setDiagram(result.diagram);
@@ -321,6 +344,15 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
     diagramUpdatedAtRef.current = diagram.updatedAt;
   }, [diagram.id, diagram.updatedAt]);
 
+  // Presence: who else has this diagram open, and where their cursor is.
+  // Keyed by Ably clientId, which we set to our own userId — see
+  // /api/ably-token. Excludes ourselves.
+  const [collaborators, setCollaborators] = useState<Record<string, { name: string; x?: number; y?: number }>>(
+    {}
+  );
+  const channelRef = useRef<Ably.RealtimeChannel | null>(null);
+  const lastCursorSentRef = useRef(0);
+
   useEffect(() => {
     if (isTemplate || !isAdmin) return;
 
@@ -329,6 +361,7 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
 
     const handleUpdate = async (updatedAt: string) => {
       if (updatedAt === diagramUpdatedAtRef.current) return; // our own save echoing back
+      if (saveInFlightRef.current) return; // our own save is still in flight — almost certainly the same echo
       const latest = await fetchLatestFromServer(diagramIdRef.current);
       if (!latest || cancelled) return;
       if (isDirtyRef.current) {
@@ -343,11 +376,39 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
     (async () => {
       const Ably = (await import('ably')).default;
       if (cancelled) return;
-      realtime = new Ably.Realtime({ authUrl: '/api/ably-token' });
+      // authParams are sent on every token request (initial + renewal) —
+      // the server uses diagramId to mint a token capable of subscribing
+      // only to this diagram's own channel, not every diagram's.
+      realtime = new Ably.Realtime({
+        authUrl: '/api/ably-token',
+        authParams: { diagramId: diagramIdRef.current },
+      });
       const channel = realtime.channels.get(`diagram:${diagramIdRef.current}`);
       channel.subscribe('updated', (msg) => {
         handleUpdate(msg.data?.updatedAt);
       });
+
+      const refreshCollaborators = async () => {
+        try {
+          const members = await channel.presence.get();
+          if (cancelled) return;
+          const next: Record<string, { name: string; x?: number; y?: number }> = {};
+          members.forEach((m) => {
+            if (m.clientId === user?.id) return; // exclude ourselves
+            next[m.clientId as string] = {
+              name: (m.data?.name as string) || 'Someone',
+              x: m.data?.x,
+              y: m.data?.y,
+            };
+          });
+          setCollaborators(next);
+        } catch {
+          // presence unavailable — collaborators list just stays empty
+        }
+      };
+      channel.presence.subscribe(['enter', 'update', 'leave'], refreshCollaborators);
+      await channel.presence.enter({ name: user?.name || 'Someone' });
+      channelRef.current = channel;
     })();
 
     // Fallback safety net in case Ably is unreachable, misconfigured
@@ -355,6 +416,7 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
     // much slower than the old primary mechanism since it's now just a
     // backstop, not the main sync path.
     const fallbackPoll = setInterval(async () => {
+      if (saveInFlightRef.current) return;
       const latest = await fetchLatestFromServer(diagramIdRef.current);
       if (!latest || latest.updatedAt === diagramUpdatedAtRef.current) return;
       if (isDirtyRef.current) {
@@ -367,9 +429,28 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
     return () => {
       cancelled = true;
       clearInterval(fallbackPoll);
+      channelRef.current?.presence.leave().catch(() => {});
+      channelRef.current = null;
+      setCollaborators({});
       realtime?.close();
     };
-  }, [diagram.id, isAdmin, isTemplate, adoptDiagram]);
+  }, [diagram.id, isAdmin, isTemplate, adoptDiagram, user?.id, user?.name]);
+
+  // Broadcasts our cursor position (in flow coordinates, so it stays
+  // correctly placed for viewers at a different zoom/pan) to anyone else
+  // with this diagram open, throttled so panning/moving the mouse doesn't
+  // flood the channel.
+  const handleCanvasMouseMove = useCallback(
+    (e: React.MouseEvent) => {
+      if (!channelRef.current) return;
+      const now = Date.now();
+      if (now - lastCursorSentRef.current < 80) return;
+      lastCursorSentRef.current = now;
+      const flowPos = reactFlowInstance.screenToFlowPosition({ x: e.clientX, y: e.clientY });
+      channelRef.current.presence.update({ name: user?.name || 'Someone', x: flowPos.x, y: flowPos.y });
+    },
+    [reactFlowInstance, user?.name]
+  );
 
   const handleReloadLatest = useCallback(() => {
     if (!conflictDiagram) return;
@@ -386,6 +467,23 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
       }
       if (!isAdmin) {
         setToastMessage('Viewer access is read-only. Duplicate this flow to make changes.');
+        setTimeout(() => setToastMessage(null), 3000);
+        return;
+      }
+      if (params.source === params.target) {
+        setToastMessage('A node can’t connect to itself.');
+        setTimeout(() => setToastMessage(null), 3000);
+        return;
+      }
+      const isDuplicate = edges.some(
+        (e) =>
+          e.source === params.source &&
+          e.target === params.target &&
+          (e.sourceHandle || null) === (params.sourceHandle || null) &&
+          (e.targetHandle || null) === (params.targetHandle || null)
+      );
+      if (isDuplicate) {
+        setToastMessage('These two nodes are already connected on this handle pair.');
         setTimeout(() => setToastMessage(null), 3000);
         return;
       }
@@ -408,6 +506,7 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
 
   // Selection change
   const onSelectionChange = useCallback((params: OnSelectionChangeParams) => {
+    setSelectedNodes(params.nodes || []);
     if (params.nodes && params.nodes.length > 0) {
       setSelectedNode(params.nodes[0]);
       setSelectedEdge(null);
@@ -629,6 +728,78 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
     [isAdmin, nodes, edges, recordHistory, setEdges]
   );
 
+  // Disconnect every edge touching a node (either as source or target),
+  // leaving the node itself and every other node/edge untouched. Companion
+  // to "Eject All Nodes" on a group: this frees up a single node so it can
+  // be manually dragged and reconnected elsewhere without deleting it.
+  const handleDisconnectNodeEdges = useCallback(
+    (nodeId: string) => {
+      if (!isAdmin) return;
+      const touching = edges.filter((e) => e.source === nodeId || e.target === nodeId);
+      if (touching.length === 0) {
+        setToastMessage('This node has no connections to disconnect.');
+        setTimeout(() => setToastMessage(null), 2500);
+        return;
+      }
+      recordHistory(nodes, edges);
+      setEdges((eds) => eds.filter((e) => e.source !== nodeId && e.target !== nodeId));
+      setToastMessage(
+        `Disconnected ${touching.length} edge${touching.length > 1 ? 's' : ''} from this node.`
+      );
+      setTimeout(() => setToastMessage(null), 2500);
+    },
+    [isAdmin, nodes, edges, recordHistory, setEdges]
+  );
+
+  // Bulk actions for a multi-selection — each is a single history entry and
+  // a single state update, not a loop over the single-node handlers (which
+  // would otherwise push N separate undo steps for one user action).
+  const handleBulkSetBgColor = useCallback(
+    (ids: string[], hex: string | undefined) => {
+      if (!isAdmin || ids.length === 0) return;
+      const idSet = new Set(ids);
+      recordHistory(nodes, edges);
+      setNodes((nds) =>
+        nds.map((n) => (idSet.has(n.id) ? { ...n, data: { ...n.data, bgColor: hex } } : n))
+      );
+      isDirtyRef.current = true;
+    },
+    [isAdmin, nodes, edges, recordHistory, setNodes]
+  );
+
+  const handleBulkDelete = useCallback(
+    (ids: string[]) => {
+      if (!isAdmin || ids.length === 0) return;
+      const idSet = new Set(ids);
+      recordHistory(nodes, edges);
+      setNodes((nds) => nds.filter((n) => !idSet.has(n.id)));
+      setEdges((eds) => eds.filter((e) => !idSet.has(e.source) && !idSet.has(e.target)));
+      setSelectedNode(null);
+      setSelectedNodes([]);
+    },
+    [isAdmin, nodes, edges, recordHistory, setNodes, setEdges]
+  );
+
+  const handleBulkDisconnectEdges = useCallback(
+    (ids: string[]) => {
+      if (!isAdmin || ids.length === 0) return;
+      const idSet = new Set(ids);
+      const touching = edges.filter((e) => idSet.has(e.source) || idSet.has(e.target));
+      if (touching.length === 0) {
+        setToastMessage('None of the selected nodes have connections to disconnect.');
+        setTimeout(() => setToastMessage(null), 2500);
+        return;
+      }
+      recordHistory(nodes, edges);
+      setEdges((eds) => eds.filter((e) => !idSet.has(e.source) && !idSet.has(e.target)));
+      setToastMessage(
+        `Disconnected ${touching.length} edge${touching.length > 1 ? 's' : ''} from the selected nodes.`
+      );
+      setTimeout(() => setToastMessage(null), 2500);
+    },
+    [isAdmin, nodes, edges, recordHistory, setEdges]
+  );
+
   const handleUndo = useCallback(() => {
     if (!isAdmin) return;
     if (history.length === 0) return;
@@ -657,6 +828,77 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
     setSelectedEdge(null);
   }, [isAdmin, future, nodes, edges, setNodes, setEdges]);
 
+  // Copy/paste, backed by localStorage rather than component state — this
+  // is what makes it work *across* diagrams (copy in one tab, open a
+  // different diagram, paste there), not just within one. pasteCountRef
+  // cascades repeated pastes of the same clipboard diagonally instead of
+  // stacking them exactly on top of each other; a fresh copy resets it.
+  const CLIPBOARD_KEY = 'flowcraft:clipboard';
+  const pasteCountRef = useRef(0);
+
+  const handleCopySelection = useCallback(() => {
+    if (selectedNodes.length === 0) return;
+    const ids = new Set(selectedNodes.map((n) => n.id));
+    const copiedEdges = edges.filter((e) => ids.has(e.source) && ids.has(e.target));
+    try {
+      localStorage.setItem(CLIPBOARD_KEY, JSON.stringify({ nodes: selectedNodes, edges: copiedEdges }));
+      pasteCountRef.current = 0;
+      setToastMessage(`Copied ${selectedNodes.length} node${selectedNodes.length > 1 ? 's' : ''}.`);
+      setTimeout(() => setToastMessage(null), 2000);
+    } catch {
+      // localStorage unavailable (private browsing, quota) — nothing to do
+    }
+  }, [selectedNodes, edges]);
+
+  const handlePasteClipboard = useCallback(() => {
+    if (!isAdmin) return;
+    let raw: string | null = null;
+    try {
+      raw = localStorage.getItem(CLIPBOARD_KEY);
+    } catch {
+      return;
+    }
+    if (!raw) return;
+
+    let parsed: { nodes: Node[]; edges: Edge[] } | null = null;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      return;
+    }
+    if (!parsed || !Array.isArray(parsed.nodes) || parsed.nodes.length === 0) return;
+
+    pasteCountRef.current += 1;
+    const offset = 40 * pasteCountRef.current;
+    const idMap = new Map<string, string>();
+    const newNodes: Node[] = parsed.nodes.map((n) => {
+      const newId = `node_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+      idMap.set(n.id, newId);
+      return {
+        ...n,
+        id: newId,
+        position: { x: n.position.x + offset, y: n.position.y + offset },
+        selected: true,
+      };
+    });
+    const newEdges: Edge[] = (parsed.edges || [])
+      .filter((e) => idMap.has(e.source) && idMap.has(e.target))
+      .map((e) => ({
+        ...e,
+        id: `e_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        source: idMap.get(e.source)!,
+        target: idMap.get(e.target)!,
+      }));
+
+    recordHistory(nodes, edges);
+    setNodes((nds) => [...nds.map((n) => ({ ...n, selected: false })), ...newNodes]);
+    setEdges((eds) => [...eds, ...newEdges]);
+    setSelectedNodes(newNodes);
+    setSelectedNode(newNodes[0] || null);
+    setToastMessage(`Pasted ${newNodes.length} node${newNodes.length > 1 ? 's' : ''}.`);
+    setTimeout(() => setToastMessage(null), 2000);
+  }, [isAdmin, nodes, edges, recordHistory, setNodes, setEdges]);
+
   // Keyboard Shortcuts (Admin only)
   useEffect(() => {
     if (!isAdmin) return;
@@ -677,8 +919,19 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
       ) {
         e.preventDefault();
         handleRedo();
+      } else if ((e.metaKey || e.ctrlKey) && e.key === 'c') {
+        if (selectedNodes.length > 0) {
+          e.preventDefault();
+          handleCopySelection();
+        }
+      } else if ((e.metaKey || e.ctrlKey) && e.key === 'v') {
+        e.preventDefault();
+        handlePasteClipboard();
       } else if (e.key === 'Delete' || e.key === 'Backspace') {
-        if (selectedNode) {
+        if (selectedNodes.length > 1) {
+          e.preventDefault();
+          handleBulkDelete(selectedNodes.map((n) => n.id));
+        } else if (selectedNode) {
           e.preventDefault();
           handleDeleteNode(selectedNode.id);
         } else if (selectedEdge) {
@@ -690,7 +943,19 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isAdmin, handleUndo, handleRedo, selectedNode, selectedEdge, handleDeleteNode, handleDeleteEdge]);
+  }, [
+    isAdmin,
+    handleUndo,
+    handleRedo,
+    selectedNode,
+    selectedEdge,
+    selectedNodes,
+    handleDeleteNode,
+    handleDeleteEdge,
+    handleBulkDelete,
+    handleCopySelection,
+    handlePasteClipboard,
+  ]);
 
   // Auto Layout (Admin only)
   const handleAutoLayout = useCallback(() => {
@@ -715,6 +980,117 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
   // `position`; the edges array is never read or written, so every
   // connection a node has — to something inside or outside the group —
   // survives untouched.
+  // Standard diagram-tool alignment/distribution/match-size toolbar, for
+  // when 2+ nodes are selected. Reads width/height off whichever the node
+  // actually has — an explicit top-level size (set by dragging a
+  // NodeResizer handle) if present, else React Flow's own measured render
+  // size, else a reasonable fallback for a node that's never been measured.
+  const getNodeSize = useCallback((node: Node) => {
+    return {
+      width: node.width || node.measured?.width || 200,
+      height: node.height || node.measured?.height || 100,
+    };
+  }, []);
+
+  const handleAlign = useCallback(
+    (mode: 'left' | 'hcenter' | 'right' | 'top' | 'vcenter' | 'bottom') => {
+      if (!isAdmin || selectedNodes.length < 2) return;
+      const ids = new Set(selectedNodes.map((n) => n.id));
+      recordHistory(nodes, edges);
+      setNodes((nds) => {
+        const targets = nds.filter((n) => ids.has(n.id));
+        const isHorizontal = mode === 'left' || mode === 'hcenter' || mode === 'right';
+
+        let refValue: number;
+        if (mode === 'left') {
+          refValue = Math.min(...targets.map((n) => n.position.x));
+        } else if (mode === 'right') {
+          refValue = Math.max(...targets.map((n) => n.position.x + getNodeSize(n).width));
+        } else if (mode === 'top') {
+          refValue = Math.min(...targets.map((n) => n.position.y));
+        } else if (mode === 'bottom') {
+          refValue = Math.max(...targets.map((n) => n.position.y + getNodeSize(n).height));
+        } else {
+          // hcenter / vcenter: midpoint of the selection's overall bounding box
+          const coord = isHorizontal ? 'x' : 'y';
+          const size = isHorizontal ? 'width' : 'height';
+          const min = Math.min(...targets.map((n) => n.position[coord]));
+          const max = Math.max(...targets.map((n) => n.position[coord] + getNodeSize(n)[size]));
+          refValue = (min + max) / 2;
+        }
+
+        return nds.map((n) => {
+          if (!ids.has(n.id)) return n;
+          const { width, height } = getNodeSize(n);
+          const position = { ...n.position };
+          if (mode === 'left') position.x = refValue;
+          else if (mode === 'right') position.x = refValue - width;
+          else if (mode === 'hcenter') position.x = refValue - width / 2;
+          else if (mode === 'top') position.y = refValue;
+          else if (mode === 'bottom') position.y = refValue - height;
+          else if (mode === 'vcenter') position.y = refValue - height / 2;
+          return { ...n, position };
+        });
+      });
+      isDirtyRef.current = true;
+    },
+    [isAdmin, selectedNodes, nodes, edges, recordHistory, setNodes, getNodeSize]
+  );
+
+  const handleDistribute = useCallback(
+    (axis: 'horizontal' | 'vertical') => {
+      if (!isAdmin || selectedNodes.length < 3) return;
+      const ids = new Set(selectedNodes.map((n) => n.id));
+      recordHistory(nodes, edges);
+      setNodes((nds) => {
+        const coord = axis === 'horizontal' ? 'x' : 'y';
+        const sizeKey = axis === 'horizontal' ? 'width' : 'height';
+        const targets = nds
+          .filter((n) => ids.has(n.id))
+          .slice()
+          .sort((a, b) => a.position[coord] - b.position[coord]);
+
+        const first = targets[0];
+        const last = targets[targets.length - 1];
+        const totalSpan =
+          last.position[coord] + getNodeSize(last)[sizeKey] - first.position[coord];
+        const totalSize = targets.reduce((sum, n) => sum + getNodeSize(n)[sizeKey], 0);
+        const gap = (totalSpan - totalSize) / (targets.length - 1);
+
+        const nextCoord = new Map<string, number>();
+        let cursor = first.position[coord];
+        targets.forEach((n) => {
+          nextCoord.set(n.id, cursor);
+          cursor += getNodeSize(n)[sizeKey] + gap;
+        });
+
+        return nds.map((n) => {
+          const value = nextCoord.get(n.id);
+          if (value === undefined) return n;
+          return { ...n, position: { ...n.position, [coord]: value } };
+        });
+      });
+      isDirtyRef.current = true;
+    },
+    [isAdmin, selectedNodes, nodes, edges, recordHistory, setNodes, getNodeSize]
+  );
+
+  const handleMatchSize = useCallback(
+    (dimension: 'width' | 'height') => {
+      if (!isAdmin || selectedNodes.length < 2) return;
+      const ids = new Set(selectedNodes.map((n) => n.id));
+      const refSize = getNodeSize(selectedNodes[0]);
+      recordHistory(nodes, edges);
+      setNodes((nds) =>
+        nds.map((n) =>
+          ids.has(n.id) ? { ...n, [dimension]: dimension === 'width' ? refSize.width : refSize.height } : n
+        )
+      );
+      isDirtyRef.current = true;
+    },
+    [isAdmin, selectedNodes, nodes, edges, recordHistory, setNodes, getNodeSize]
+  );
+
   const handleEjectGroupNodes = useCallback(
     (groupId: string) => {
       if (!isAdmin) return;
@@ -814,6 +1190,20 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
     URL.revokeObjectURL(url);
   }, [diagram, nodes, edges]);
 
+  const commandPaletteActions: CommandPaletteAction[] = useMemo(
+    () => [
+      { id: 'save-now', label: 'Save this version', onRun: handleSaveNow },
+      { id: 'tidy-layout', label: 'Tidy layout', onRun: handleAutoLayout },
+      { id: 'toggle-left-sidebar', label: 'Toggle left sidebar', onRun: () => setLeftVisible((v) => !v) },
+      { id: 'toggle-right-sidebar', label: 'Toggle right panel', onRun: () => setRightVisible((v) => !v) },
+      { id: 'export-png', label: 'Export as PNG', onRun: handleExportPNG },
+      { id: 'export-svg', label: 'Export as SVG', onRun: handleExportSVG },
+      { id: 'export-json', label: 'Export as JSON', onRun: handleExportJSON },
+      { id: 'back-to-dashboard', label: 'Back to Dashboard', onRun: () => router.push('/') },
+    ],
+    [handleSaveNow, handleAutoLayout, handleExportPNG, handleExportSVG, handleExportJSON, router]
+  );
+
   const handleImportJSON = useCallback(
     (file: File) => {
       const reader = new FileReader();
@@ -838,6 +1228,7 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
     if (node.type === 'erTableNode') return '#10b981';
     if (node.type === 'groupNode') return '#cbd5e1';
     if (node.type === 'stickyNode') return '#fde047';
+    if (node.type === 'imageNode') return '#a855f7';
     return '#94a3b8';
   }, []);
 
@@ -846,6 +1237,7 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
       {/* Top Header Toolbar */}
       <EditorHeader
         diagram={diagram}
+        collaborators={collaborators}
         onUpdateTitle={(title) => {
           if (!isAdmin) return;
           setDiagram((d) => ({ ...d, title }));
@@ -1026,7 +1418,7 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
         </div>
 
         {/* Center React Flow Canvas */}
-        <div ref={reactFlowWrapper} className="flex-1 h-full w-full relative">
+        <div ref={reactFlowWrapper} className="flex-1 h-full w-full relative" onMouseMove={handleCanvasMouseMove}>
           <ReactFlow
             nodes={nodes}
             edges={edges}
@@ -1081,6 +1473,32 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
               className="!w-44 !h-32 shadow-sm border border-slate-200"
             />
           </ReactFlow>
+
+          {isAdmin && (
+            <AlignmentToolbar
+              count={selectedNodes.length}
+              onAlign={handleAlign}
+              onDistribute={handleDistribute}
+              onMatchSize={handleMatchSize}
+            />
+          )}
+
+          <CollaboratorCursors collaborators={collaborators} />
+
+          {isAdmin && nodes.length === 0 && (
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
+              <div className="text-center max-w-xs px-6 py-8 rounded-2xl border-2 border-dashed border-slate-200 bg-white/60">
+                <p className="text-sm font-semibold text-slate-500">This diagram is empty</p>
+                <p className="text-xs text-slate-400 mt-1.5 leading-relaxed">
+                  Drag a shape from the left sidebar onto the canvas, or press{' '}
+                  <kbd className="px-1 py-0.5 rounded bg-slate-100 border border-slate-200 font-mono text-[10px]">
+                    Ctrl/⌘+K
+                  </kbd>{' '}
+                  for quick actions.
+                </p>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Right resize handle + collapse toggle */}
@@ -1125,6 +1543,11 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
               onSelectNode={handleSelectFromLayers}
               onSelectEdge={handleSelectEdgeFromLayers}
               onEjectGroupNodes={handleEjectGroupNodes}
+              onDisconnectNodeEdges={handleDisconnectNodeEdges}
+              selectedNodes={selectedNodes}
+              onBulkSetBgColor={handleBulkSetBgColor}
+              onBulkDelete={handleBulkDelete}
+              onBulkDisconnectEdges={handleBulkDisconnectEdges}
               nodeCount={nodes.length}
               edgeCount={edges.length}
               readOnly={!isAdmin}
@@ -1132,6 +1555,8 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
           </div>
         )}
       </div>
+
+      <CommandPalette actions={commandPaletteActions} />
 
       {isAdmin && (
         <AiAssistantModal

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { memo } from 'react';
-import { NodeProps, Handle, Position } from '@xyflow/react';
+import { NodeProps, Handle, Position, NodeResizer } from '@xyflow/react';
 import { StickyNodeData } from '@/types/diagram';
 
 const STICKY_COLORS: Record<string, { bg: string; border: string; text: string; header: string }> = {
@@ -18,12 +18,20 @@ function StickyNodeComponent({ data, selected }: NodeProps) {
 
   return (
     <div
-      className={`relative w-[220px] p-3.5 rounded-lg border shadow-xs transition-all duration-150 ${
+      className={`relative w-full h-full min-w-[160px] min-h-[100px] p-3.5 rounded-lg border shadow-xs transition-all duration-150 overflow-auto ${
         theme.bg
       } ${theme.border} ${
-        selected ? 'ring-2 ring-amber-400 border-amber-400 shadow-md scale-[1.02]' : ''
+        selected ? 'ring-2 ring-amber-400 border-amber-400 shadow-md' : ''
       }`}
+      style={{ backgroundColor: nodeData.bgColor }}
     >
+      <NodeResizer
+        minWidth={160}
+        minHeight={100}
+        isVisible={selected}
+        lineClassName="border-amber-400"
+        handleClassName="h-2.5 w-2.5 bg-white border-2 border-amber-500 rounded"
+      />
       <Handle type="target" position={Position.Top} id="top" className="!w-2 !h-2 !bg-amber-400 !border !border-white" />
       <Handle type="source" position={Position.Right} id="right" className="!w-2 !h-2 !bg-amber-400 !border !border-white" />
       <Handle type="source" position={Position.Bottom} id="bottom" className="!w-2 !h-2 !bg-amber-400 !border !border-white" />

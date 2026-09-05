@@ -154,12 +154,39 @@ export async function updateUserVerification(userId: string, isVerified: boolean
   }
 }
 
+export async function updateUserTwoFactor(userId: string, enabled: boolean): Promise<void> {
+  const col = await getUsersCollection();
+  if (col) {
+    try {
+      await col.updateOne(
+        { id: userId },
+        {
+          $set: {
+            twoFactorEnabled: enabled,
+            updatedAt: new Date().toISOString(),
+          },
+        }
+      );
+      return;
+    } catch (err) {
+      console.error('Error updating two-factor setting in Mongo:', err);
+    }
+  }
+
+  const user = memoryUsers.get(userId);
+  if (user) {
+    user.twoFactorEnabled = enabled;
+    user.updatedAt = new Date().toISOString();
+  }
+}
+
 export function sanitizeUser(user: UserDocument): User {
   return {
     id: user.id,
     name: user.name,
     email: user.email,
     isVerified: user.isVerified === true,
+    twoFactorEnabled: user.twoFactorEnabled === true,
     createdAt: user.createdAt,
     updatedAt: user.updatedAt,
   };

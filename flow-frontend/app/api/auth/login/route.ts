@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
-import { comparePassword, generateAccessToken, generateRefreshToken, setAuthCookies } from '@/lib/auth';
+import { comparePassword, issueLoginTokens, getRequestMeta } from '@/lib/auth';
 import { findUserByEmail, updateUserRefreshToken, sanitizeUser } from '@/lib/userStorage';
+import { saveOtp } from '@/lib/otpStorage';
+import { sendOtpEmail } from '@/lib/mailer';
 
 export async function POST(request: Request) {
   try {
@@ -37,15 +39,28 @@ export async function POST(request: Request) {
       );
     }
 
-    // Generate tokens: Access Token valid 1 Day, Refresh Token valid 28 Days
-    const accessToken = generateAccessToken({ id: user.id, email: user.email, name: user.name });
-    const refreshToken = generateRefreshToken({ id: user.id });
+    // Opt-in two-factor: password is correct, but don't issue tokens yet —
+    // send an OTP and make the client complete sign-in via
+    // /api/auth/verify-login-otp instead.
+    if (user.twoFactorEnabled) {
+      const otp = Math.floor(100000 + Math.random() * 900000).toString();
+      await saveOtp({ email: user.email, otp, purpose: 'login-2fa', expiryMinutes: 10 });
+      await sendOtpEmail({ to: user.email, otp, purpose: 'login-2fa', name: user.name });
+      return NextResponse.json({
+        success: false,
+        requiresTwoFactor: true,
+        email: user.email,
+        message: `A 6-digit code was sent to ${user.email}.`,
+      });
+    }
 
-    // Store refresh token in MongoDB for session management
+    const { accessToken, refreshToken } = await issueLoginTokens(
+      { id: user.id, email: user.email, name: user.name },
+      getRequestMeta(request)
+    );
+
+    // Store refresh token in MongoDB too (legacy check some routes still do)
     await updateUserRefreshToken(user.id, refreshToken);
-
-    // Set secure HttpOnly cookies (1-day access, 28-day refresh)
-    await setAuthCookies(accessToken, refreshToken);
 
     return NextResponse.json({
       success: true,

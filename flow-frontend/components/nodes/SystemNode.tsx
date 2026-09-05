@@ -1,7 +1,7 @@
 'use client';
 
 import React, { memo } from 'react';
-import { Handle, Position, NodeProps } from '@xyflow/react';
+import { Handle, Position, NodeProps, NodeResizer } from '@xyflow/react';
 import {
   Server,
   Database,
@@ -124,10 +124,19 @@ function SystemNodeComponent({ data, selected }: NodeProps) {
 
   return (
     <div
-      className={`relative min-w-[200px] max-w-[260px] bg-white rounded-xl border-2 transition-all duration-150 shadow-sm hover:shadow-md ${
+      className={`relative w-full h-full min-w-[200px] min-h-[96px] bg-white rounded-xl border-2 transition-all duration-150 shadow-sm hover:shadow-md ${
         selected ? 'border-blue-500 shadow-md ring-2 ring-blue-400/30' : theme.border
       }`}
+      style={{ backgroundColor: nodeData.bgColor }}
     >
+      <NodeResizer
+        minWidth={200}
+        minHeight={96}
+        isVisible={selected}
+        lineClassName="border-blue-400"
+        handleClassName="h-2.5 w-2.5 bg-white border-2 border-blue-500 rounded"
+      />
+
       {/* Handles on 4 sides */}
       <Handle
         type="target"

@@ -1,7 +1,20 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import { randomUUID } from 'crypto';
 import { cookies } from 'next/headers';
 import { AccessTokenPayload, RefreshTokenPayload } from '@/types/user';
+import { isSessionActive, createSession } from '@/lib/sessionStore';
+
+// A token with a jti is only valid if its session is still active — this is
+// what makes "sign out this device" (lib/sessionStore.ts) a real
+// revocation instead of a cosmetic list. A token with no jti (the one
+// exception: generateMcpToken) skips this check entirely and is validated
+// on signature/expiry alone, exactly as before session tracking existed.
+async function payloadIsUsable(payload: { userId: string; jti?: string } | null): Promise<boolean> {
+  if (!payload?.userId) return false;
+  if (!payload.jti) return true;
+  return isSessionActive(payload.userId, payload.jti);
+}
 
 const ACCESS_SECRET = process.env.JWT_ACCESS_SECRET || 'flowcraft_access_secret_super_secure_key_1d';
 const REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'flowcraft_refresh_secret_super_secure_key_28d';
@@ -26,13 +39,18 @@ export async function comparePassword(password: string, hash: string): Promise<b
   return bcrypt.compare(password, hash);
 }
 
-// Token Generation
-export function generateAccessToken(user: { id: string; email: string; name: string }): string {
+// Token Generation. `jti` ties a token to an active-sessions entry (see
+// lib/sessionStore.ts) — pass it for anything issued at login/refresh so
+// "sign out this device" can actually revoke it. Omit it (as
+// generateMcpToken below does) for tokens that intentionally sit outside
+// session tracking.
+export function generateAccessToken(user: { id: string; email: string; name: string }, jti?: string): string {
   const payload: AccessTokenPayload = {
     userId: user.id,
     email: user.email,
     name: user.name,
     type: 'access',
+    ...(jti ? { jti } : {}),
   };
 
   return jwt.sign(payload, ACCESS_SECRET, {
@@ -40,10 +58,11 @@ export function generateAccessToken(user: { id: string; email: string; name: str
   });
 }
 
-export function generateRefreshToken(user: { id: string }): string {
+export function generateRefreshToken(user: { id: string }, jti?: string): string {
   const payload: RefreshTokenPayload = {
     userId: user.id,
     type: 'refresh',
+    ...(jti ? { jti } : {}),
   };
 
   return jwt.sign(payload, REFRESH_SECRET, {
@@ -108,6 +127,30 @@ export async function setAuthCookies(accessToken: string, refreshToken: string) 
   });
 }
 
+// Shared by every path that completes a login (password login, the 2FA OTP
+// step, and — separately — the refresh route keeps the same jti rather than
+// calling this again): mints a fresh session id, issues both tokens carrying
+// it, records the session in Redis, and sets the cookies. One choke point
+// so "what counts as a session" can't drift between login paths.
+export async function issueLoginTokens(
+  user: { id: string; email: string; name: string },
+  meta: { userAgent: string; ip: string }
+): Promise<{ accessToken: string; refreshToken: string }> {
+  const jti = randomUUID();
+  const accessToken = generateAccessToken(user, jti);
+  const refreshToken = generateRefreshToken({ id: user.id }, jti);
+  await createSession(user.id, jti, meta);
+  await setAuthCookies(accessToken, refreshToken);
+  return { accessToken, refreshToken };
+}
+
+export function getRequestMeta(request: Request): { userAgent: string; ip: string } {
+  const forwarded = request.headers.get('x-forwarded-for');
+  const ip = (forwarded ? forwarded.split(',')[0].trim() : request.headers.get('x-real-ip')) || 'unknown';
+  const userAgent = request.headers.get('user-agent') || 'unknown';
+  return { userAgent, ip };
+}
+
 export async function setAccessTokenCookie(accessToken: string) {
   const cookieStore = await cookies();
   const isProd = process.env.NODE_ENV === 'production';
@@ -146,7 +189,7 @@ export async function resolveAuthUserId(request?: Request): Promise<string | nul
       if (authHeader?.startsWith('Bearer ')) {
         const token = authHeader.substring(7);
         const payload = verifyAccessToken(token);
-        if (payload?.userId) return payload.userId;
+        if (await payloadIsUsable(payload)) return payload!.userId;
       }
 
       // Check request Cookie header directly (crucial for fetch from client components)
@@ -155,12 +198,12 @@ export async function resolveAuthUserId(request?: Request): Promise<string | nul
         const matchAccess = cookieHeader.match(new RegExp(`${ACCESS_COOKIE_NAME}=([^;]+)`));
         if (matchAccess?.[1]) {
           const payload = verifyAccessToken(matchAccess[1]);
-          if (payload?.userId) return payload.userId;
+          if (await payloadIsUsable(payload)) return payload!.userId;
         }
         const matchRefresh = cookieHeader.match(new RegExp(`${REFRESH_COOKIE_NAME}=([^;]+)`));
         if (matchRefresh?.[1]) {
           const payload = verifyRefreshToken(matchRefresh[1]);
-          if (payload?.userId) return payload.userId;
+          if (await payloadIsUsable(payload)) return payload!.userId;
         }
       }
     }
@@ -170,12 +213,12 @@ export async function resolveAuthUserId(request?: Request): Promise<string | nul
       const authCookies = await getAuthCookies();
       if (authCookies.accessToken) {
         const payload = verifyAccessToken(authCookies.accessToken);
-        if (payload?.userId) return payload.userId;
+        if (await payloadIsUsable(payload)) return payload!.userId;
       }
 
       if (authCookies.refreshToken) {
         const payload = verifyRefreshToken(authCookies.refreshToken);
-        if (payload?.userId) return payload.userId;
+        if (await payloadIsUsable(payload)) return payload!.userId;
       }
     } catch {}
 

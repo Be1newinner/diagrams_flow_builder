@@ -3,12 +3,22 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { User, AuthResponse } from '@/types/user';
 
-export type AuthModalMode = 'login' | 'register' | 'verify-register' | 'forgot-password' | 'verify-reset';
+export type AuthModalMode =
+  | 'login'
+  | 'register'
+  | 'verify-register'
+  | 'forgot-password'
+  | 'verify-reset'
+  | 'verify-login-2fa';
 
 interface AuthContextType {
   user: User | null;
   isLoading: boolean;
-  login: (email: string, password: string) => Promise<{ success: boolean; error?: string; needsVerification?: boolean }>;
+  login: (
+    email: string,
+    password: string
+  ) => Promise<{ success: boolean; error?: string; needsVerification?: boolean; requiresTwoFactor?: boolean }>;
+  verifyLoginOtp: (email: string, otp: string) => Promise<{ success: boolean; error?: string }>;
   register: (name: string, email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   sendRegisterOtp: (name: string, email: string, password: string) => Promise<{ success: boolean; error?: string; message?: string }>;
   verifyRegisterOtp: (email: string, otp: string) => Promise<{ success: boolean; error?: string }>;
@@ -60,7 +70,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const login = async (
     email: string,
     password: string
-  ): Promise<{ success: boolean; error?: string; needsVerification?: boolean }> => {
+  ): Promise<{ success: boolean; error?: string; needsVerification?: boolean; requiresTwoFactor?: boolean }> => {
     try {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
@@ -69,6 +79,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       });
 
       const data: AuthResponse = await res.json();
+
+      if (data.requiresTwoFactor) {
+        return { success: false, requiresTwoFactor: true };
+      }
 
       if (!res.ok || !data.success || !data.user) {
         return {
@@ -83,6 +97,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return { success: true };
     } catch (err: any) {
       return { success: false, error: err.message || 'Network error signing in' };
+    }
+  };
+
+  const verifyLoginOtp = async (email: string, otp: string): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const res = await fetch('/api/auth/verify-login-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, otp }),
+      });
+
+      const data: AuthResponse = await res.json();
+      if (!res.ok || !data.success || !data.user) {
+        return { success: false, error: data.error || 'Failed to verify code' };
+      }
+
+      setUser(data.user);
+      setIsAuthModalOpen(false);
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Network error verifying code' };
     }
   };
 
@@ -216,6 +251,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         user,
         isLoading,
         login,
+        verifyLoginOtp,
         register,
         sendRegisterOtp,
         verifyRegisterOtp,

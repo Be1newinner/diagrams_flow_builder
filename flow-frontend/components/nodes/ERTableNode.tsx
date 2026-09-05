@@ -1,7 +1,7 @@
 'use client';
 
 import React, { memo } from 'react';
-import { Handle, Position, NodeProps } from '@xyflow/react';
+import { Handle, Position, NodeProps, NodeResizer } from '@xyflow/react';
 import { Table, Key, Hash } from 'lucide-react';
 import { ERTableNodeData } from '@/types/diagram';
 
@@ -22,10 +22,19 @@ function ERTableNodeComponent({ data, selected }: NodeProps) {
 
   return (
     <div
-      className={`relative min-w-[240px] max-w-[300px] bg-white rounded-lg border-2 shadow-sm transition-all duration-150 overflow-hidden ${
+      className={`relative w-full h-full min-w-[240px] min-h-[100px] bg-white rounded-lg border-2 shadow-sm transition-all duration-150 overflow-hidden flex flex-col ${
         selected ? 'border-blue-500 shadow-md ring-2 ring-blue-400/40' : 'border-slate-200'
       }`}
+      style={{ backgroundColor: nodeData.bgColor }}
     >
+      <NodeResizer
+        minWidth={240}
+        minHeight={100}
+        isVisible={selected}
+        lineClassName="border-blue-400"
+        handleClassName="h-2.5 w-2.5 bg-white border-2 border-blue-500 rounded"
+      />
+
       {/* General Table Handles */}
       <Handle type="target" position={Position.Top} id="top" className="!w-2.5 !h-2.5 !bg-blue-500 !border-2 !border-white" />
       <Handle type="source" position={Position.Right} id="right" className="!w-2.5 !h-2.5 !bg-blue-500 !border-2 !border-white" />
@@ -33,7 +42,7 @@ function ERTableNodeComponent({ data, selected }: NodeProps) {
       <Handle type="target" position={Position.Left} id="left" className="!w-2.5 !h-2.5 !bg-blue-500 !border-2 !border-white" />
 
       {/* Table Header */}
-      <div className={`${headerTheme.bg} ${headerTheme.text} px-3 py-2 flex items-center justify-between`}>
+      <div className={`${headerTheme.bg} ${headerTheme.text} shrink-0 px-3 py-2 flex items-center justify-between`}>
         <div className="flex items-center gap-1.5 min-w-0">
           <Table className="w-3.5 h-3.5 shrink-0 opacity-85" />
           <span className="font-semibold text-xs tracking-wide truncate">
@@ -46,7 +55,7 @@ function ERTableNodeComponent({ data, selected }: NodeProps) {
       </div>
 
       {/* Table Columns List */}
-      <div className="divide-y divide-slate-100 bg-white">
+      <div className="divide-y divide-slate-100 flex-1 overflow-y-auto">
         {columns.map((col, index) => (
           <div
             key={col.id || index}

@@ -24,8 +24,21 @@ import {
   StickyNote,
   ChevronRight,
   Plus,
+  User,
+  Image as ImageIcon,
 } from 'lucide-react';
 import { DiagramCategory } from '@/types/diagram';
+
+// A minimal inline UML "actor" stick figure — no external asset dependency,
+// works offline, and is small enough to embed as a data URI.
+const ACTOR_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 100">
+  <circle cx="32" cy="14" r="12" fill="none" stroke="#334155" stroke-width="4"/>
+  <line x1="32" y1="26" x2="32" y2="64" stroke="#334155" stroke-width="4" stroke-linecap="round"/>
+  <line x1="8" y1="40" x2="56" y2="40" stroke="#334155" stroke-width="4" stroke-linecap="round"/>
+  <line x1="32" y1="64" x2="10" y2="96" stroke="#334155" stroke-width="4" stroke-linecap="round"/>
+  <line x1="32" y1="64" x2="54" y2="96" stroke="#334155" stroke-width="4" stroke-linecap="round"/>
+</svg>`;
+const ACTOR_DATA_URI = `data:image/svg+xml,${encodeURIComponent(ACTOR_SVG)}`;
 
 interface PaletteItem {
   id: string;
@@ -287,6 +300,32 @@ const PALETTE_ITEMS: PaletteItem[] = [
       title: 'Note',
       text: 'Add important architecture notes or specifications here...',
       color: 'yellow',
+    },
+  },
+  {
+    id: 'gen-actor',
+    name: 'Actor',
+    subtitle: 'UML actor / user role',
+    category: 'general',
+    icon: <User className="w-4 h-4 text-slate-600" />,
+    nodeType: 'imageNode',
+    data: {
+      src: ACTOR_DATA_URI,
+      alt: 'Actor',
+      fit: 'contain',
+    },
+  },
+  {
+    id: 'gen-image',
+    name: 'Image / SVG',
+    subtitle: 'Paste any image URL, resizable',
+    category: 'general',
+    icon: <ImageIcon className="w-4 h-4 text-purple-500" />,
+    nodeType: 'imageNode',
+    data: {
+      src: '',
+      alt: '',
+      fit: 'contain',
     },
   },
 ];
