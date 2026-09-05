@@ -128,13 +128,27 @@ export function getDiagram(id: string, userId?: string | null): Diagram | null {
   return null;
 }
 
-export function saveDiagram(diagram: Diagram, userId?: string | null): void {
-  if (typeof window === 'undefined') return;
+export type SaveResult =
+  | { status: 'ok'; diagram: Diagram }
+  | { status: 'created'; diagram: Diagram }
+  | { status: 'conflict'; latest: Diagram }
+  | { status: 'error' };
+
+// Saves locally (instant) and to the server (async), using optimistic
+// concurrency: `diagram.updatedAt` as passed in is the version this edit was
+// based on ("baseVersion"). If the server's copy has moved on since then —
+// another tab, another user, or an MCP tool call saved in between — the
+// server rejects with 409 instead of silently letting last-write-wins
+// clobber that other edit. Callers should inspect the returned SaveResult.
+export function saveDiagram(diagram: Diagram, userId?: string | null): Promise<SaveResult> {
+  if (typeof window === 'undefined') return Promise.resolve({ status: 'error' });
 
   // Cannot modify built-in starter templates
   if (diagram.isTemplate || diagram.id.startsWith('template-')) {
-    return;
+    return Promise.resolve({ status: 'error' });
   }
+
+  const baseVersion = diagram.updatedAt;
 
   try {
     const key = getStorageKey(userId);
@@ -161,23 +175,60 @@ export function saveDiagram(diagram: Diagram, userId?: string | null): void {
     localStorage.setItem(key, JSON.stringify(nextList));
     window.dispatchEvent(new CustomEvent('flowcraft:storage-update', { detail: { id: diagram.id } }));
 
-    // Send to backend API (PUT with fallback to POST if not created yet)
-    fetch(`/api/diagrams/${diagram.id}`, {
+    // Send to backend API (PUT with fallback to POST if not created yet),
+    // tagging the request with the version we edited from.
+    return fetch(`/api/diagrams/${diagram.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(updatedDiagram),
-    }).then((res) => {
-      if (res.status === 404) {
-        // Not found on server -> POST to create it
-        fetch('/api/diagrams', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(updatedDiagram),
-        }).catch(() => {});
-      }
-    }).catch(() => {});
+      body: JSON.stringify({ ...updatedDiagram, baseVersion }),
+    })
+      .then(async (res): Promise<SaveResult> => {
+        if (res.status === 409) {
+          const body = await res.json().catch(() => null);
+          const latest = body?.latest as Diagram | undefined;
+          if (!latest) return { status: 'error' };
+          // Reconcile the local cache with the authoritative server copy so
+          // we don't keep re-offering a stale version on next load.
+          const list = getDiagrams(userId);
+          const idx = list.findIndex((d) => d.id === latest.id);
+          const merged =
+            idx >= 0 ? [...list.slice(0, idx), latest, ...list.slice(idx + 1)] : [latest, ...list];
+          localStorage.setItem(key, JSON.stringify(merged));
+          return { status: 'conflict', latest };
+        }
+        if (res.status === 404) {
+          const created = await fetch('/api/diagrams', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(updatedDiagram),
+          })
+            .then((r) => (r.ok ? r.json() : null))
+            .catch(() => null);
+          return created ? { status: 'created', diagram: created } : { status: 'error' };
+        }
+        if (res.ok) {
+          const saved = await res.json();
+          return { status: 'ok', diagram: saved };
+        }
+        return { status: 'error' };
+      })
+      .catch((): SaveResult => ({ status: 'error' }));
   } catch (error) {
     console.error('Error saving diagram:', error);
+    return Promise.resolve({ status: 'error' });
+  }
+}
+
+// Fetches the authoritative current copy from the server, bypassing the
+// local cache entirely. Used to detect drift while a diagram is open.
+export async function fetchLatestFromServer(id: string): Promise<Diagram | null> {
+  if (typeof window === 'undefined') return null;
+  try {
+    const res = await fetch(`/api/diagrams/${id}`);
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
   }
 }
 

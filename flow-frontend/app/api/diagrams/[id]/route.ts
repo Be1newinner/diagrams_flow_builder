@@ -63,7 +63,27 @@ export async function PUT(
   }
 
   try {
-    const body: Partial<Diagram> = await request.json();
+    const { baseVersion, ...body }: Partial<Diagram> & { baseVersion?: string } = await request.json();
+
+    // Optimistic concurrency check. `baseVersion` is the updatedAt the
+    // client last saw when it started this edit. If the diagram we just
+    // fetched has since moved on (another tab, another user, or an MCP
+    // tool call saved in between), reject instead of blindly overwriting
+    // that other edit with `$set` — the previous unconditional last-write-
+    // wins behavior is exactly what let concurrent editors silently stomp
+    // each other. Older/legacy clients that don't send baseVersion skip
+    // this check.
+    if (baseVersion && baseVersion !== existing.updatedAt) {
+      return NextResponse.json(
+        {
+          error: 'Conflict: this diagram was modified elsewhere since you loaded it.',
+          conflict: true,
+          latest: existing,
+        },
+        { status: 409 }
+      );
+    }
+
     const updated: Diagram = {
       ...existing,
       ...body,
@@ -71,7 +91,9 @@ export async function PUT(
       userId,
       isTemplate: false,
     };
-    const saved = await saveServerDiagram(updated, userId);
+    // Pass `existing` through to avoid a second, slightly-later read that
+    // would only widen the race window this check is meant to close.
+    const saved = await saveServerDiagram(updated, userId, existing);
     return NextResponse.json(saved);
   } catch (error: any) {
     return NextResponse.json({ error: error.message || 'Failed to update diagram' }, { status: 500 });

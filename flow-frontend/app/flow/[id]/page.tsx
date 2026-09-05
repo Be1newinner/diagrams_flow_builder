@@ -12,6 +12,8 @@ import {
   Connection,
   Edge,
   Node,
+  NodeChange,
+  EdgeChange,
   Background,
   BackgroundVariant,
   Controls,
@@ -20,11 +22,18 @@ import {
   OnSelectionChangeParams,
 } from '@xyflow/react';
 import { toPng, toSvg } from 'html-to-image';
-import { ArrowLeft, Loader2, Sparkles, Plus, Lock, LogIn, Eye, CheckCircle2 } from 'lucide-react';
+import { ArrowLeft, Loader2, Sparkles, Plus, Lock, LogIn, Eye, CheckCircle2, RefreshCw } from 'lucide-react';
 
 import { useAuth } from '@/context/AuthContext';
 import { Diagram, DiagramCategory } from '@/types/diagram';
-import { getDiagram, saveDiagram, duplicateDiagram, exportDiagramJSON, importDiagramJSON } from '@/lib/storage';
+import {
+  getDiagram,
+  saveDiagram,
+  duplicateDiagram,
+  exportDiagramJSON,
+  importDiagramJSON,
+  fetchLatestFromServer,
+} from '@/lib/storage';
 import { tidyLayout } from '@/lib/layout';
 
 import { SystemNode } from '@/components/nodes/SystemNode';
@@ -74,6 +83,18 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
 
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // True only while there is a real, user-driven change waiting to be saved.
+  // React Flow fires onNodesChange for passive events too (dimension
+  // measurement on mount, selection clicks) — without this flag those would
+  // trigger the autosave effect and PUT a stale in-memory copy back to the
+  // server, clobbering a newer edit made elsewhere (another tab, another
+  // user, or an MCP tool call) in the gap between page load and that PUT.
+  const isDirtyRef = useRef(false);
+
+  // Set when a save attempt (or background poll) discovers the server has a
+  // newer version than the one this tab started editing from.
+  const [conflictDiagram, setConflictDiagramState] = useState<Diagram | null>(null);
 
   // Resizable left/right panel widths (px), dragged via the handles between
   // each sidebar and the canvas.
@@ -142,13 +163,45 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
       isUndoRedoAction.current = false;
       return;
     }
+    isDirtyRef.current = true;
     setHistory((prev) => [...prev.slice(-30), { nodes: newNodes, edges: newEdges }]);
     setFuture([]);
   }, []);
 
+  // Wrapped React Flow change handlers: apply every change (so dimension
+  // measurement etc. still renders correctly), but only mark the diagram
+  // dirty for changes a user actually made (drag, delete, add) — not passive
+  // 'dimensions' or 'select' events. This is what the autosave effect below
+  // gates on.
+  const onNodesChangeTracked = useCallback(
+    (changes: NodeChange[]) => {
+      if (changes.some((c) => c.type !== 'dimensions' && c.type !== 'select')) {
+        isDirtyRef.current = true;
+      }
+      onNodesChange(changes);
+    },
+    [onNodesChange]
+  );
+  const onEdgesChangeTracked = useCallback(
+    (changes: EdgeChange[]) => {
+      if (changes.some((c) => c.type !== 'select')) {
+        isDirtyRef.current = true;
+      }
+      onEdgesChange(changes);
+    },
+    [onEdgesChange]
+  );
+
   // Save to LocalStorage / server with debouncing (ADMIN only)
   useEffect(() => {
     if (isTemplate || !isAdmin) {
+      setIsSaving(false);
+      return;
+    }
+    if (!isDirtyRef.current) {
+      // Nothing the user actually changed since the last successful save —
+      // skip the network round trip instead of re-PUTting an identical (or
+      // worse, stale) copy.
       setIsSaving(false);
       return;
     }
@@ -163,15 +216,50 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
           gridType,
           defaultEdgeType,
         },
-        updatedAt: new Date().toISOString(),
       };
-      saveDiagram(updated, user?.id);
-      setDiagram(updated);
-      setIsSaving(false);
+      saveDiagram(updated, user?.id).then((result) => {
+        setIsSaving(false);
+        if (result.status === 'ok' || result.status === 'created') {
+          isDirtyRef.current = false;
+          setDiagram(result.diagram);
+        } else if (result.status === 'conflict') {
+          // Do NOT overwrite the user's in-progress edits automatically —
+          // just surface the newer version and let them choose to reload it.
+          // isDirtyRef stays true so we keep retrying (and keep failing
+          // safely) until they do.
+          setConflictDiagramState(result.latest);
+        }
+      });
     }, 600);
 
     return () => clearTimeout(timeout);
-  }, [nodes, edges, diagram.title, diagram.category, diagram.isTemplate, diagram.id, gridType, defaultEdgeType, user?.id, isAdmin]);
+  }, [nodes, edges, diagram, gridType, defaultEdgeType, user?.id, isAdmin, isTemplate]);
+
+  // Poll for drift while this tab is open, so edits made elsewhere (another
+  // tab, another user, or an MCP tool call) are noticed even if this tab
+  // never attempts its own save.
+  useEffect(() => {
+    if (isTemplate || !isAdmin) return;
+    const interval = setInterval(async () => {
+      const latest = await fetchLatestFromServer(diagram.id);
+      if (!latest || latest.updatedAt === diagram.updatedAt) return;
+      if (isDirtyRef.current) {
+        // We have unsaved local edits — don't discard them, just warn.
+        setConflictDiagramState(latest);
+      } else {
+        // Nothing unsaved locally: safe to silently adopt the newer version.
+        setDiagram(latest);
+      }
+    }, 15000);
+    return () => clearInterval(interval);
+  }, [diagram.id, diagram.updatedAt, isAdmin, isTemplate]);
+
+  const handleReloadLatest = useCallback(() => {
+    if (!conflictDiagram) return;
+    isDirtyRef.current = false;
+    setDiagram(conflictDiagram);
+    setConflictDiagramState(null);
+  }, [conflictDiagram]);
 
   // Connect handler (ADMIN only)
   const onConnect = useCallback(
@@ -298,6 +386,7 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
   const handleUpdateNodeData = useCallback(
     (nodeId: string, newData: Record<string, any>) => {
       if (!isAdmin) return;
+      isDirtyRef.current = true;
       setNodes((nds) =>
         nds.map((node) => {
           if (node.id === nodeId) {
@@ -319,6 +408,7 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
   const handleUpdateEdgeData = useCallback(
     (edgeId: string, newData: Record<string, any>) => {
       if (!isAdmin) return;
+      isDirtyRef.current = true;
       setEdges((eds) =>
         eds.map((edge) => {
           if (edge.id === edgeId) {
@@ -393,6 +483,7 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
     setFuture((f) => [{ nodes, edges }, ...f]);
     setHistory((h) => h.slice(0, -1));
     isUndoRedoAction.current = true;
+    isDirtyRef.current = true;
     setNodes(previous.nodes);
     setEdges(previous.edges);
     setSelectedNode(null);
@@ -404,6 +495,7 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
     if (future.length === 0) return;
     const next = future[0];
     isUndoRedoAction.current = true;
+    isDirtyRef.current = true;
     setHistory((h) => [...h, { nodes, edges }]);
     setFuture((f) => f.slice(1));
     setNodes(next.nodes);
@@ -636,6 +728,34 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
         )
       )}
 
+      {/* Conflict Banner: server has a newer version than the one we're editing */}
+      {isAdmin && conflictDiagram && (
+        <div className="bg-rose-50 border-b border-rose-200/90 px-4 py-2 flex items-center justify-between text-xs text-rose-900 shadow-2xs z-30">
+          <div className="flex items-center gap-2">
+            <RefreshCw className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+            <span>
+              <strong>Changed elsewhere:</strong> this diagram was updated (another tab, teammate, or an MCP
+              tool) since you loaded it. Your unsaved edits here will keep failing to save until you reload.
+            </span>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={() => setConflictDiagramState(null)}
+              className="px-3 py-1 text-rose-700 hover:text-rose-900 font-medium text-xs cursor-pointer"
+            >
+              Dismiss
+            </button>
+            <button
+              onClick={handleReloadLatest}
+              className="inline-flex items-center gap-1.5 px-3 py-1 bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white font-semibold rounded-lg text-xs shadow-xs transition-colors cursor-pointer"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>Reload Latest Version</span>
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Main Workspace: Left Palette + Canvas + Right Inspector */}
       <div className="flex flex-1 overflow-hidden relative">
         {/* Left Palette */}
@@ -661,8 +781,8 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
           <ReactFlow
             nodes={nodes}
             edges={edges}
-            onNodesChange={isAdmin ? onNodesChange : undefined}
-            onEdgesChange={isAdmin ? onEdgesChange : undefined}
+            onNodesChange={isAdmin ? onNodesChangeTracked : undefined}
+            onEdgesChange={isAdmin ? onEdgesChangeTracked : undefined}
             onConnect={onConnect}
             nodesDraggable={isAdmin}
             nodesConnectable={isAdmin}
@@ -751,14 +871,22 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
             recordHistory(nodes, edges);
             setNodes(newNodes);
             setEdges(newEdges);
+            // Note: don't stamp updatedAt here — saveDiagram uses the
+            // incoming value as the version this edit was based on
+            // (baseVersion) and stamps the real one itself on success.
             const updated: Diagram = {
               ...diagram,
               nodes: newNodes,
               edges: newEdges,
-              updatedAt: new Date().toISOString(),
             };
-            saveDiagram(updated, user?.id);
-            setDiagram(updated);
+            saveDiagram(updated, user?.id).then((result) => {
+              if (result.status === 'ok' || result.status === 'created') {
+                isDirtyRef.current = false;
+                setDiagram(result.diagram);
+              } else if (result.status === 'conflict') {
+                setConflictDiagramState(result.latest);
+              }
+            });
             setToastMessage(summary || 'Diagram updated by AI!');
             setTimeout(() => setToastMessage(null), 3500);
             setTimeout(() => {
@@ -856,7 +984,16 @@ export default function FlowEditorPage() {
 
   return (
     <ReactFlowProvider>
-      <FlowEditorCanvas initialDiagram={diagram} />
+      {/*
+        Keying on updatedAt forces a full remount whenever a newer server
+        copy arrives (initial load resolving after localStorage, or a
+        reload-latest action after a conflict). FlowEditorCanvas seeds its
+        nodes/edges from initialDiagram exactly once via useState — without
+        this key, a fresher diagram fetched after mount would never reach
+        the canvas, and its stale in-memory nodes could autosave back over
+        newer edits made elsewhere (see lib/storage.ts saveDiagram).
+      */}
+      <FlowEditorCanvas key={diagram.updatedAt} initialDiagram={diagram} />
     </ReactFlowProvider>
   );
 }
