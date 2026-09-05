@@ -23,6 +23,7 @@ import {
   ChevronDown,
   ChevronsDownUp,
   ChevronsUpDown,
+  Ungroup,
 } from 'lucide-react';
 import {
   SystemNodeData,
@@ -46,6 +47,7 @@ interface PropertiesPanelProps {
   onDeleteEdge: (id: string) => void;
   onSelectNode: (id: string) => void;
   onSelectEdge: (id: string) => void;
+  onEjectGroupNodes: (groupId: string) => void;
   nodeCount: number;
   edgeCount: number;
   readOnly?: boolean;
@@ -117,6 +119,7 @@ export function PropertiesPanel({
   onDeleteEdge,
   onSelectNode,
   onSelectEdge,
+  onEjectGroupNodes,
   nodeCount,
   edgeCount,
   readOnly = false,
@@ -574,6 +577,22 @@ export function PropertiesPanel({
                     />
                   ))}
                 </div>
+              </div>
+
+              <div className="pt-3 border-t border-slate-100">
+                <button
+                  onClick={() => onEjectGroupNodes(selectedNode.id)}
+                  className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 transition-colors cursor-pointer"
+                  title="Move every node currently inside this box out to a free row below it"
+                >
+                  <Ungroup className="w-3.5 h-3.5" />
+                  Eject All Nodes
+                </button>
+                <p className="text-[10px] text-slate-400 mt-1.5 leading-relaxed">
+                  Pulls every node currently sitting inside this box out to a free row below it, so you
+                  can drag each one wherever it needs to go. Their connections to other nodes are never
+                  touched — only their position changes.
+                </p>
               </div>
             </>
           )}

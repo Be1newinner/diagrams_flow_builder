@@ -210,7 +210,43 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
     [onEdgesChange]
   );
 
-  // Save to LocalStorage / server with debouncing (ADMIN only)
+  // The actual save, shared by the debounced autosave effect below and by
+  // the manual "Save this version" button — both must save identically
+  // (same payload, same conflict handling), the button just skips the wait.
+  const performSave = useCallback(() => {
+    if (isTemplate || !isAdmin) return;
+    if (!isDirtyRef.current) return;
+    setIsSaving(true);
+    const updated: Diagram = {
+      ...diagram,
+      nodes,
+      edges,
+      settings: {
+        ...diagram.settings,
+        gridType,
+        gridGap,
+        gridSize,
+        defaultEdgeType,
+      },
+    };
+    saveDiagram(updated, user?.id).then((result) => {
+      setIsSaving(false);
+      if (result.status === 'ok' || result.status === 'created') {
+        isDirtyRef.current = false;
+        setDiagram(result.diagram);
+      } else if (result.status === 'conflict') {
+        // Do NOT overwrite the user's in-progress edits automatically —
+        // just surface the newer version and let them choose to reload it.
+        // isDirtyRef stays true so we keep retrying (and keep failing
+        // safely) until they do.
+        setConflictDiagramState(result.latest);
+      }
+    });
+  }, [isTemplate, isAdmin, diagram, nodes, edges, gridType, gridGap, gridSize, defaultEdgeType, user?.id]);
+
+  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Debounced autosave (ADMIN only)
   useEffect(() => {
     if (isTemplate || !isAdmin) {
       setIsSaving(false);
@@ -224,36 +260,28 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
       return;
     }
     setIsSaving(true);
-    const timeout = setTimeout(() => {
-      const updated: Diagram = {
-        ...diagram,
-        nodes,
-        edges,
-        settings: {
-          ...diagram.settings,
-          gridType,
-          gridGap,
-          gridSize,
-          defaultEdgeType,
-        },
-      };
-      saveDiagram(updated, user?.id).then((result) => {
-        setIsSaving(false);
-        if (result.status === 'ok' || result.status === 'created') {
-          isDirtyRef.current = false;
-          setDiagram(result.diagram);
-        } else if (result.status === 'conflict') {
-          // Do NOT overwrite the user's in-progress edits automatically —
-          // just surface the newer version and let them choose to reload it.
-          // isDirtyRef stays true so we keep retrying (and keep failing
-          // safely) until they do.
-          setConflictDiagramState(result.latest);
-        }
-      });
-    }, 600);
+    saveTimeoutRef.current = setTimeout(performSave, 600);
 
-    return () => clearTimeout(timeout);
-  }, [nodes, edges, diagram, gridType, gridGap, gridSize, defaultEdgeType, user?.id, isAdmin, isTemplate]);
+    return () => {
+      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    };
+  }, [nodes, edges, diagram, gridType, gridGap, gridSize, defaultEdgeType, user?.id, isAdmin, isTemplate, performSave]);
+
+  // Manual "Save this version" button: cancel any pending debounced save
+  // (so we don't double-save moments later) and save right now instead of
+  // waiting out the 600ms debounce.
+  const handleSaveNow = useCallback(() => {
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = null;
+    }
+    if (!isDirtyRef.current) {
+      setToastMessage('Already up to date — nothing to save.');
+      setTimeout(() => setToastMessage(null), 2000);
+      return;
+    }
+    performSave();
+  }, [performSave]);
 
   // Applies a server-fetched diagram to everything that actually drives the
   // canvas. `diagram` only holds metadata (title/category/settings) — the
@@ -679,6 +707,66 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
     }, 50);
   }, [isAdmin, nodes, edges, recordHistory, setNodes, reactFlowInstance]);
 
+  // Eject every node currently sitting inside a Group/Container box out to a
+  // free row underneath it, so they can be individually dragged elsewhere.
+  // Group nodes here are a purely visual dashed box (no real parentId /
+  // containment in this data model) — "inside" just means positionally
+  // overlapping the group's rectangle. This only ever touches node
+  // `position`; the edges array is never read or written, so every
+  // connection a node has — to something inside or outside the group —
+  // survives untouched.
+  const handleEjectGroupNodes = useCallback(
+    (groupId: string) => {
+      if (!isAdmin) return;
+      const group = nodes.find((n) => n.id === groupId);
+      if (!group || group.type !== 'groupNode') return;
+
+      const gx = group.position.x;
+      const gy = group.position.y;
+      const gw = group.width || group.measured?.width || 280;
+      const gh = group.height || group.measured?.height || 180;
+
+      const contained = nodes.filter((n) => {
+        if (n.id === groupId || n.type === 'groupNode') return false;
+        const nw = n.width || n.measured?.width || 200;
+        const nh = n.height || n.measured?.height || 100;
+        const cx = n.position.x + nw / 2;
+        const cy = n.position.y + nh / 2;
+        return cx >= gx && cx <= gx + gw && cy >= gy && cy <= gy + gh;
+      });
+
+      if (contained.length === 0) {
+        setToastMessage('No nodes are currently inside this group.');
+        setTimeout(() => setToastMessage(null), 3000);
+        return;
+      }
+
+      recordHistory(nodes, edges);
+
+      const spacing = 40;
+      const newY = gy + gh + 60;
+      let cursorX = gx;
+      const nextPositions = new Map<string, { x: number; y: number }>();
+      contained.forEach((n) => {
+        const nw = n.width || n.measured?.width || 200;
+        nextPositions.set(n.id, { x: cursorX, y: newY });
+        cursorX += nw + spacing;
+      });
+
+      setNodes((nds) =>
+        nds.map((n) => {
+          const pos = nextPositions.get(n.id);
+          return pos ? { ...n, position: pos, selected: false } : n;
+        })
+      );
+      setToastMessage(
+        `Ejected ${contained.length} node${contained.length > 1 ? 's' : ''} from the group — drag to reconnect elsewhere.`
+      );
+      setTimeout(() => setToastMessage(null), 3500);
+    },
+    [isAdmin, nodes, edges, recordHistory, setNodes]
+  );
+
   // Export handlers
   const handleExportPNG = useCallback(() => {
     if (!reactFlowWrapper.current) return;
@@ -767,6 +855,8 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
           setDiagram((d) => ({ ...d, category }));
         }}
         isSaving={isSaving}
+        onSaveNow={handleSaveNow}
+        canSaveNow={isAdmin && !isTemplate}
         canUndo={isAdmin && history.length > 0}
         canRedo={isAdmin && future.length > 0}
         onUndo={handleUndo}
@@ -1034,6 +1124,7 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
               onDeleteEdge={handleDeleteEdge}
               onSelectNode={handleSelectFromLayers}
               onSelectEdge={handleSelectEdgeFromLayers}
+              onEjectGroupNodes={handleEjectGroupNodes}
               nodeCount={nodes.length}
               edgeCount={edges.length}
               readOnly={!isAdmin}

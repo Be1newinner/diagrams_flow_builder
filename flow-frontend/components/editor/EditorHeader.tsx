@@ -36,6 +36,8 @@ interface EditorHeaderProps {
   onUpdateTitle: (title: string) => void;
   onUpdateCategory: (category: DiagramCategory) => void;
   isSaving: boolean;
+  onSaveNow: () => void;
+  canSaveNow: boolean;
   canUndo: boolean;
   canRedo: boolean;
   onUndo: () => void;
@@ -65,6 +67,8 @@ export function EditorHeader({
   onUpdateTitle,
   onUpdateCategory,
   isSaving,
+  onSaveNow,
+  canSaveNow,
   canUndo,
   canRedo,
   onUndo,
@@ -210,6 +214,21 @@ export function EditorHeader({
               </>
             )}
           </div>
+
+          {/* Manual save button — flushes the current state immediately
+              instead of waiting out the autosave debounce. Same save path
+              and same data as autosave; this just skips the wait. */}
+          {canSaveNow && (
+            <button
+              onClick={onSaveNow}
+              disabled={isSaving}
+              className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-semibold text-slate-600 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+              title="Save the current state now instead of waiting"
+            >
+              <Save className="w-3.5 h-3.5" />
+              <span>Save this version</span>
+            </button>
+          )}
 
           {/* User Access Badge */}
           {userAccessType === 'ADMIN' && (
