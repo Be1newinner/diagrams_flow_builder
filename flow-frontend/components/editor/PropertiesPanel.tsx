@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { Node, Edge } from '@xyflow/react';
 import {
   Sliders,
@@ -19,6 +19,10 @@ import {
   Maximize,
   GitBranch,
   Box,
+  ChevronRight,
+  ChevronDown,
+  ChevronsDownUp,
+  ChevronsUpDown,
 } from 'lucide-react';
 import {
   SystemNodeData,
@@ -768,6 +772,23 @@ interface LayersListProps {
   readOnly: boolean;
 }
 
+// Nodes have no explicit parent/child field in this data model, so the
+// hierarchy is derived from the edge graph: an edge source -> target means
+// target is a "child" of source. Nodes with no incoming edge (including
+// fully isolated nodes) are roots. A node reachable from more than one
+// parent renders under each of them (normal for a DAG, not a strict tree);
+// a node reachable from itself via its own ancestors renders as a
+// non-expandable leaf instead of recursing forever.
+function buildChildrenMap(edges: Edge[]): Map<string, string[]> {
+  const map = new Map<string, string[]>();
+  for (const edge of edges) {
+    const list = map.get(edge.source) || [];
+    list.push(edge.target);
+    map.set(edge.source, list);
+  }
+  return map;
+}
+
 function LayersList({
   nodes,
   edges,
@@ -779,55 +800,122 @@ function LayersList({
   onDeleteEdge,
   readOnly,
 }: LayersListProps) {
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+
+  const nodesById = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
+  const childrenMap = useMemo(() => buildChildrenMap(edges), [edges]);
+  const hasIncoming = useMemo(() => new Set(edges.map((e) => e.target)), [edges]);
+  const roots = useMemo(() => nodes.filter((n) => !hasIncoming.has(n.id)), [nodes, hasIncoming]);
+
+  const toggleCollapsed = useCallback((id: string) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const expandAll = useCallback(() => setCollapsed(new Set()), []);
+  const collapseAll = useCallback(() => {
+    setCollapsed(new Set(nodes.filter((n) => (childrenMap.get(n.id) || []).length > 0).map((n) => n.id)));
+  }, [nodes, childrenMap]);
+
   const edgeEndpointLabel = (id: string) => {
-    const node = nodes.find((n) => n.id === id);
+    const node = nodesById.get(id);
     return node ? nodeLabel(node) : id;
+  };
+
+  const renderRow = (nodeId: string, depth: number, ancestors: Set<string>): React.ReactNode => {
+    const node = nodesById.get(nodeId);
+    if (!node) return null;
+
+    const isCycle = ancestors.has(nodeId);
+    const children = isCycle ? [] : childrenMap.get(nodeId) || [];
+    const hasChildren = children.length > 0;
+    const isCollapsed = collapsed.has(nodeId);
+    const active = selectedNode?.id === nodeId;
+
+    return (
+      <li key={`${Array.from(ancestors).join('>')}>${nodeId}`}>
+        <div
+          onClick={() => onSelectNode(nodeId)}
+          className={`group flex items-center gap-1.5 py-1.5 pr-3.5 cursor-pointer border-l-2 transition-colors ${
+            active
+              ? 'bg-blue-50 border-blue-500 text-blue-800'
+              : 'border-transparent hover:bg-slate-50 text-slate-700'
+          }`}
+          style={{ paddingLeft: `${14 + depth * 16}px` }}
+          title={isCycle ? `${node.id} (already shown above — cyclic reference)` : node.id}
+        >
+          {hasChildren ? (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                toggleCollapsed(nodeId);
+              }}
+              className="p-0.5 rounded text-slate-400 hover:text-slate-700 hover:bg-slate-200 shrink-0"
+              title={isCollapsed ? 'Expand' : 'Collapse'}
+            >
+              {isCollapsed ? <ChevronRight className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+            </button>
+          ) : (
+            <span className="w-4 shrink-0" />
+          )}
+          <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${isCycle ? 'bg-amber-400' : 'bg-slate-300'}`} />
+          <span className={`truncate flex-1 font-medium ${isCycle ? 'italic text-slate-400' : ''}`}>
+            {nodeLabel(node)}
+          </span>
+          <span className="text-[10px] text-slate-400 shrink-0">{nodeTypeLabel(node)}</span>
+          {!readOnly && !isCycle && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onDeleteNode(nodeId);
+              }}
+              className="p-1 rounded text-slate-300 hover:text-red-600 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+              title="Delete node"
+            >
+              <Trash2 className="w-3 h-3" />
+            </button>
+          )}
+        </div>
+        {hasChildren && !isCollapsed && (
+          <ul>{children.map((childId) => renderRow(childId, depth + 1, new Set([...ancestors, nodeId])))}</ul>
+        )}
+      </li>
+    );
   };
 
   return (
     <div className="flex-1 overflow-y-auto text-xs">
       {/* Nodes */}
-      <div className="px-3.5 pt-3 pb-1.5 text-[11px] font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1.5 sticky top-0 bg-white">
-        <Box className="w-3 h-3" />
-        Nodes ({nodes.length})
+      <div className="px-3.5 pt-3 pb-1.5 flex items-center justify-between sticky top-0 bg-white">
+        <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+          <Box className="w-3 h-3" />
+          Nodes ({nodes.length})
+        </span>
+        <div className="flex items-center gap-0.5">
+          <button
+            onClick={expandAll}
+            className="p-1 rounded text-slate-400 hover:text-slate-700 hover:bg-slate-100"
+            title="Expand all"
+          >
+            <ChevronsUpDown className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={collapseAll}
+            className="p-1 rounded text-slate-400 hover:text-slate-700 hover:bg-slate-100"
+            title="Collapse all"
+          >
+            <ChevronsDownUp className="w-3.5 h-3.5" />
+          </button>
+        </div>
       </div>
       {nodes.length === 0 ? (
         <div className="px-3.5 py-2 text-slate-400 italic">No nodes yet.</div>
       ) : (
-        <ul>
-          {nodes.map((node) => {
-            const active = selectedNode?.id === node.id;
-            return (
-              <li key={node.id}>
-                <div
-                  onClick={() => onSelectNode(node.id)}
-                  className={`group flex items-center gap-2 px-3.5 py-1.5 cursor-pointer border-l-2 transition-colors ${
-                    active
-                      ? 'bg-blue-50 border-blue-500 text-blue-800'
-                      : 'border-transparent hover:bg-slate-50 text-slate-700'
-                  }`}
-                  title={node.id}
-                >
-                  <span className="w-1.5 h-1.5 rounded-full bg-slate-300 shrink-0" />
-                  <span className="truncate flex-1 font-medium">{nodeLabel(node)}</span>
-                  <span className="text-[10px] text-slate-400 shrink-0">{nodeTypeLabel(node)}</span>
-                  {!readOnly && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onDeleteNode(node.id);
-                      }}
-                      className="p-1 rounded text-slate-300 hover:text-red-600 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
-                      title="Delete node"
-                    >
-                      <Trash2 className="w-3 h-3" />
-                    </button>
-                  )}
-                </div>
-              </li>
-            );
-          })}
-        </ul>
+        <ul>{roots.map((node) => renderRow(node.id, 0, new Set()))}</ul>
       )}
 
       {/* Edges */}
