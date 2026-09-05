@@ -30,7 +30,6 @@ import {
   getDiagram,
   saveDiagram,
   duplicateDiagram,
-  exportDiagramJSON,
   importDiagramJSON,
   fetchLatestFromServer,
 } from '@/lib/storage';
@@ -588,7 +587,10 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
   }, [diagram.title]);
 
   const handleExportJSON = useCallback(() => {
-    const json = exportDiagramJSON(diagram.id, user?.id);
+    // Export the live canvas state (nodes/edges currently in memory), not a
+    // server round-trip — the server copy can lag behind unsaved edits.
+    const exportable: Diagram = { ...diagram, nodes, edges };
+    const json = JSON.stringify(exportable, null, 2);
     const blob = new Blob([json], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -596,15 +598,15 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
     a.href = url;
     a.click();
     URL.revokeObjectURL(url);
-  }, [diagram.id, diagram.title, user?.id]);
+  }, [diagram, nodes, edges]);
 
   const handleImportJSON = useCallback(
     (file: File) => {
       const reader = new FileReader();
-      reader.onload = (e) => {
+      reader.onload = async (e) => {
         try {
           const text = e.target?.result as string;
-          const imported = importDiagramJSON(text, user?.id);
+          const imported = await importDiagramJSON(text, user?.id);
           router.push(`/flow/${imported.id}`);
         } catch {
           alert('Invalid diagram JSON file.');
@@ -669,12 +671,12 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
             </span>
           </div>
           <button
-            onClick={() => {
+            onClick={async () => {
               if (!user) {
                 openLoginModal();
                 return;
               }
-              const cloned = duplicateDiagram(diagram.id, user.id);
+              const cloned = await duplicateDiagram(diagram.id, user.id);
               if (cloned) router.push(`/flow/${cloned.id}`);
             }}
             className="inline-flex items-center gap-1.5 px-3 py-1 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-semibold rounded-lg text-xs shadow-xs transition-colors cursor-pointer"
@@ -693,12 +695,12 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
             </span>
           </div>
           <button
-            onClick={() => {
+            onClick={async () => {
               if (!user) {
                 openLoginModal();
                 return;
               }
-              const cloned = duplicateDiagram(diagram.id, user.id);
+              const cloned = await duplicateDiagram(diagram.id, user.id);
               if (cloned) router.push(`/flow/${cloned.id}`);
             }}
             className="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white font-semibold rounded-lg text-xs shadow-xs transition-colors cursor-pointer"
@@ -918,27 +920,13 @@ export default function FlowEditorPage() {
     let isMounted = true;
     async function loadDiagram() {
       if (!id) return;
-      // 1. Try local storage first
-      const local = getDiagram(id, user?.id);
-      if (local && isMounted) {
-        setDiagram(local);
+      setLoading(true);
+      // Always the server's current copy — no local cache to fall back to
+      // or go stale.
+      const serverDiagram = await getDiagram(id, user?.id);
+      if (isMounted) {
+        setDiagram(serverDiagram);
         setLoading(false);
-      }
-
-      // 2. Fetch from server API to guarantee latest AI edits
-      try {
-        const res = await fetch(`/api/diagrams/${id}`);
-        if (res.ok) {
-          const serverDiagram = await res.json();
-          if (serverDiagram && isMounted) {
-            setDiagram(serverDiagram);
-            saveDiagram(serverDiagram, user?.id);
-          }
-        }
-      } catch {
-        // use local
-      } finally {
-        if (isMounted) setLoading(false);
       }
     }
 
@@ -986,8 +974,8 @@ export default function FlowEditorPage() {
     <ReactFlowProvider>
       {/*
         Keying on updatedAt forces a full remount whenever a newer server
-        copy arrives (initial load resolving after localStorage, or a
-        reload-latest action after a conflict). FlowEditorCanvas seeds its
+        copy arrives (e.g. a reload-latest action after a conflict).
+        FlowEditorCanvas seeds its
         nodes/edges from initialDiagram exactly once via useState — without
         this key, a fresher diagram fetched after mount would never reach
         the canvas, and its stale in-memory nodes could autosave back over

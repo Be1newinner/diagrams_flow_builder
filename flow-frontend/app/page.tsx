@@ -48,23 +48,14 @@ export default function DashboardPage() {
     }, 3000);
   };
 
-  const loadData = useCallback(() => {
-    const list = getDiagrams(user?.id);
+  const loadData = useCallback(async () => {
+    const list = await getDiagrams(user?.id);
     setDiagrams(list);
     setIsLoaded(true);
   }, [user?.id]);
 
   useEffect(() => {
     loadData();
-
-    const handleStorageUpdate = () => {
-      loadData();
-    };
-
-    window.addEventListener('flowcraft:storage-update', handleStorageUpdate);
-    return () => {
-      window.removeEventListener('flowcraft:storage-update', handleStorageUpdate);
-    };
   }, [loadData]);
 
   // Category counts
@@ -113,7 +104,7 @@ export default function DashboardPage() {
     setCreateModalOpen(true);
   };
 
-  const handleCreateFlow = (params: {
+  const handleCreateFlow = async (params: {
     title: string;
     description: string;
     category: DiagramCategory;
@@ -128,13 +119,17 @@ export default function DashboardPage() {
       showToast(`Diagram limit reached (${MAX_LIMIT}/${MAX_LIMIT}).`);
       return;
     }
-    const newDiagram = createDiagram(params, user?.id);
+    const newDiagram = await createDiagram(params, user?.id);
     setCreateModalOpen(false);
+    if (!newDiagram) {
+      showToast('Failed to create diagram');
+      return;
+    }
     showToast(`Created "${newDiagram.title}"`);
     router.push(`/flow/${newDiagram.id}`);
   };
 
-  const handleDuplicate = (id: string) => {
+  const handleDuplicate = async (id: string) => {
     if (!user) {
       openLoginModal();
       return;
@@ -143,16 +138,18 @@ export default function DashboardPage() {
       showToast(`Diagram limit reached (${MAX_LIMIT}/${MAX_LIMIT}). Cannot duplicate.`);
       return;
     }
-    const cloned = duplicateDiagram(id, user?.id);
+    const cloned = await duplicateDiagram(id, user?.id);
     if (cloned) {
-      loadData();
+      await loadData();
       showToast(`Duplicated to "${cloned.title}"`);
+    } else {
+      showToast('Failed to duplicate diagram');
     }
   };
 
-  const handleExportJSON = (id: string) => {
+  const handleExportJSON = async (id: string) => {
     try {
-      const json = exportDiagramJSON(id, user?.id);
+      const json = await exportDiagramJSON(id, user?.id);
       const diagram = diagrams.find((d) => d.id === id);
       const blob = new Blob([json], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
@@ -177,11 +174,11 @@ export default function DashboardPage() {
       return;
     }
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
       try {
         const text = e.target?.result as string;
-        const imported = importDiagramJSON(text, user?.id);
-        loadData();
+        const imported = await importDiagramJSON(text, user?.id);
+        await loadData();
         showToast(`Imported "${imported.title}"`);
         router.push(`/flow/${imported.id}`);
       } catch {
@@ -191,12 +188,16 @@ export default function DashboardPage() {
     reader.readAsText(file);
   };
 
-  const handleDeleteConfirm = () => {
+  const handleDeleteConfirm = async () => {
     if (diagramToDelete) {
-      deleteDiagram(diagramToDelete.id, user?.id);
+      const ok = await deleteDiagram(diagramToDelete.id);
       setDiagramToDelete(null);
-      loadData();
-      showToast('Diagram deleted');
+      if (ok) {
+        await loadData();
+        showToast('Diagram deleted');
+      } else {
+        showToast('Failed to delete diagram');
+      }
     }
   };
 
