@@ -13,6 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 import { AuthProvider } from "@/context/AuthContext";
+import { ThemeProvider } from "@/context/ThemeContext";
 import { AuthModal } from "@/components/auth/AuthModal";
 
 export const metadata: Metadata = {
@@ -40,12 +41,22 @@ export default function RootLayout({
     <html
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      suppressHydrationWarning
     >
-      <body className="min-h-full flex flex-col bg-slate-50 text-slate-900">
-        <AuthProvider>
-          {children}
-          <AuthModal />
-        </AuthProvider>
+      {/* Background/foreground come from the CSS vars in globals.css (swapped
+          by ThemeContext toggling the .dark class on this element), not
+          Tailwind utility classes here — a class like bg-slate-50 would win
+          specificity over the var-driven `body { background: ... }` rule and
+          silently defeat dark mode. suppressHydrationWarning is needed
+          because ThemeContext sets the .dark class imperceptibly after
+          mount, outside React's own hydration diffing. */}
+      <body className="min-h-full flex flex-col">
+        <ThemeProvider>
+          <AuthProvider>
+            {children}
+            <AuthModal />
+          </AuthProvider>
+        </ThemeProvider>
       </body>
     </html>
   );

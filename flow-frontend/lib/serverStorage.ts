@@ -12,6 +12,7 @@ import {
   setCachedDiagramList,
   invalidateDiagramListCache,
 } from './diagramCache';
+import { logDiagramActivity, deleteDiagramActivity } from './auditLog';
 
 const DATA_DIR = path.resolve(process.cwd(), '../data');
 const DATA_FILE = path.join(DATA_DIR, 'diagrams.json');
@@ -110,6 +111,7 @@ export async function getServerDiagrams(userId?: string | null): Promise<Diagram
           $or: [
             { userId: userId },
             { 'users.userId': userId },
+            { isPublic: true },
             { isTemplate: true },
             { id: { $in: templateIds } },
           ],
@@ -145,6 +147,7 @@ export async function getServerDiagrams(userId?: string | null): Promise<Diagram
       (d) =>
         d.userId === userId ||
         d.users?.some((u) => u.userId === userId) ||
+        d.isPublic === true ||
         d.isTemplate ||
         d.id.startsWith('template-')
     )
@@ -167,8 +170,14 @@ function withAccessCheck(diagram: Diagram, userId?: string | null): Diagram | nu
     return diagram;
   }
 
+  // `isPublic` only ever grants VIEW access to any signed-in user — it never
+  // adds them to `users[]`, so saveServerDiagram/deleteServerDiagram's ADMIN
+  // checks (which only ever consult `users[]`) remain untouched by this.
   const hasAccess =
-    !!userId && (diagram.userId === userId || diagram.users?.some((u) => u.userId === userId));
+    !!userId &&
+    (diagram.userId === userId ||
+      diagram.users?.some((u) => u.userId === userId) ||
+      diagram.isPublic === true);
 
   if (!hasAccess) return null;
 
@@ -322,6 +331,8 @@ export async function saveServerDiagram(
   // cached list is no longer valid — simpler to drop it than merge in place.
   invalidateDiagramListCache(adminId);
 
+  logDiagramActivity(updated.id, userId, existing ? 'updated' : 'created');
+
   // Notify anyone with this diagram open — another tab, another user, or an
   // MCP tool client — right away instead of making them poll for it. This is
   // the single choke point every save path (PUT route, POST route, and every
@@ -329,6 +340,73 @@ export async function saveServerDiagram(
   publishDiagramUpdate(updated.id, updated.updatedAt);
 
   return updated;
+}
+
+// --- Sharing ---
+// All three helpers reuse saveServerDiagram's own ADMIN-only write path
+// (and therefore its cache write-through, list-cache invalidation, Ably
+// publish, and audit log) rather than writing to Mongo/file directly here —
+// sharing is just a mutation of `users[]` / `isPublic` on the same document.
+
+export async function shareDiagramWithUser(
+  diagramId: string,
+  adminUserId: string,
+  viewerUserId: string
+): Promise<Diagram> {
+  const existing = await getServerDiagram(diagramId, adminUserId);
+  if (!existing) throw new Error('Diagram not found or access denied');
+
+  const isAdmin =
+    existing.userId === adminUserId ||
+    existing.users?.some((u) => u.userId === adminUserId && u.accesstype === 'ADMIN');
+  if (!isAdmin) throw new Error('Forbidden: Only the diagram ADMIN can share this diagram.');
+
+  if (viewerUserId === adminUserId) throw new Error('You already have access to this diagram.');
+  if (existing.users?.some((u) => u.userId === viewerUserId)) return existing;
+
+  const updated: Diagram = {
+    ...existing,
+    users: [...(existing.users || []), { userId: viewerUserId, accesstype: 'VIEWER' }],
+  };
+  return saveServerDiagram(updated, adminUserId, existing);
+}
+
+export async function revokeDiagramAccess(
+  diagramId: string,
+  adminUserId: string,
+  targetUserId: string
+): Promise<Diagram> {
+  const existing = await getServerDiagram(diagramId, adminUserId);
+  if (!existing) throw new Error('Diagram not found or access denied');
+
+  const isAdmin =
+    existing.userId === adminUserId ||
+    existing.users?.some((u) => u.userId === adminUserId && u.accesstype === 'ADMIN');
+  if (!isAdmin) throw new Error('Forbidden: Only the diagram ADMIN can manage sharing.');
+  if (targetUserId === adminUserId) throw new Error('Cannot remove the diagram ADMIN.');
+
+  const updated: Diagram = {
+    ...existing,
+    users: (existing.users || []).filter((u) => u.userId !== targetUserId),
+  };
+  return saveServerDiagram(updated, adminUserId, existing);
+}
+
+export async function setDiagramPublic(
+  diagramId: string,
+  adminUserId: string,
+  isPublic: boolean
+): Promise<Diagram> {
+  const existing = await getServerDiagram(diagramId, adminUserId);
+  if (!existing) throw new Error('Diagram not found or access denied');
+
+  const isAdmin =
+    existing.userId === adminUserId ||
+    existing.users?.some((u) => u.userId === adminUserId && u.accesstype === 'ADMIN');
+  if (!isAdmin) throw new Error('Forbidden: Only the diagram ADMIN can manage sharing.');
+
+  const updated: Diagram = { ...existing, isPublic };
+  return saveServerDiagram(updated, adminUserId, existing);
 }
 
 export async function deleteServerDiagram(id: string, userId: string): Promise<boolean> {
@@ -366,6 +444,7 @@ export async function deleteServerDiagram(id: string, userId: string): Promise<b
   if (deleted) {
     deleteCachedDiagram(id);
     invalidateDiagramListCache(userId);
+    deleteDiagramActivity(id);
   }
   return deleted;
 }

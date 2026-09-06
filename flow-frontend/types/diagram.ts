@@ -105,4 +105,5 @@ export interface Diagram {
   userId?: string;      // Owner user ID (or 'system' for templates)
   isTemplate?: boolean; // true for built-in sample templates
   users?: DiagramUserAccess[]; // Access control list: exactly one ADMIN, multiple VIEWERS
+  isPublic?: boolean;   // true = every signed-in user can view (never edit) this diagram
 }

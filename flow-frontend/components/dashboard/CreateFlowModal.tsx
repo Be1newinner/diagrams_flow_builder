@@ -175,41 +175,41 @@ export function CreateFlowModal({ isOpen, onClose, onCreate }: CreateFlowModalPr
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs animate-in fade-in duration-150">
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-2xl overflow-hidden max-h-[92vh] flex flex-col">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-2xl w-full max-w-2xl overflow-hidden max-h-[92vh] flex flex-col">
         {/* Header */}
-        <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+        <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-800/50">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-blue-600 to-indigo-600 text-white flex items-center justify-center shadow-xs">
               <Sparkles className="w-4 h-4" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-slate-900">Create New Diagram Flow</h2>
-              <p className="text-xs text-slate-500">
+              <h2 className="text-base font-bold text-slate-900 dark:text-slate-50">Create New Diagram Flow</h2>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
                 Build with Gemini AI or start from templates and scratch
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
+            className="p-1.5 rounded-lg text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
         {/* Tab Switcher */}
-        <div className="px-6 pt-3 pb-1 border-b border-slate-100 bg-slate-50/30">
-          <div className="grid grid-cols-2 gap-1 p-1 bg-slate-100 rounded-xl border border-slate-200/80">
+        <div className="px-6 pt-3 pb-1 border-b border-slate-100 dark:border-slate-800 bg-slate-50/30 dark:bg-slate-800/30">
+          <div className="grid grid-cols-2 gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200/80 dark:border-slate-700/80">
             <button
               type="button"
               onClick={() => setActiveTab('ai')}
               className={`py-1.5 px-3 text-xs font-semibold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
                 activeTab === 'ai'
-                  ? 'bg-white text-indigo-700 shadow-xs ring-1 ring-indigo-500/20'
-                  : 'text-slate-600 hover:text-slate-900'
+                  ? 'bg-white dark:bg-slate-900 text-indigo-700 dark:text-indigo-400 shadow-xs ring-1 ring-indigo-500/20'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
               }`}
             >
-              <Wand2 className="w-3.5 h-3.5 text-indigo-600" />
+              <Wand2 className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
               <span>✨ Build with Gemini AI</span>
             </button>
             <button
@@ -217,11 +217,11 @@ export function CreateFlowModal({ isOpen, onClose, onCreate }: CreateFlowModalPr
               onClick={() => setActiveTab('manual')}
               className={`py-1.5 px-3 text-xs font-semibold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
                 activeTab === 'manual'
-                  ? 'bg-white text-blue-700 shadow-xs ring-1 ring-blue-500/20'
-                  : 'text-slate-600 hover:text-slate-900'
+                  ? 'bg-white dark:bg-slate-900 text-blue-700 dark:text-blue-400 shadow-xs ring-1 ring-blue-500/20'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
               }`}
             >
-              <FilePlus className="w-3.5 h-3.5 text-blue-600" />
+              <FilePlus className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
               <span>Manual Setup & Templates</span>
             </button>
           </div>
@@ -231,18 +231,18 @@ export function CreateFlowModal({ isOpen, onClose, onCreate }: CreateFlowModalPr
         {activeTab === 'ai' && (
           <form onSubmit={handleAiSubmit} className="p-6 overflow-y-auto space-y-4 flex-1">
             {aiError && (
-              <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-800 flex items-start gap-2">
-                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+              <div className="p-3 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 rounded-xl text-xs text-rose-800 dark:text-rose-300 flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
                 <div>
                   <p className="font-semibold">AI Generation Failed</p>
-                  <p className="text-[11px] text-rose-700 mt-0.5">{aiError}</p>
+                  <p className="text-[11px] text-rose-700 dark:text-rose-400 mt-0.5">{aiError}</p>
                 </div>
               </div>
             )}
 
             {/* Prompt Input */}
             <div>
-              <label className="text-xs font-semibold text-slate-700 block mb-1.5">
+              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1.5">
                 Describe the architecture or workflow you want to build
               </label>
               <textarea
@@ -250,14 +250,14 @@ export function CreateFlowModal({ isOpen, onClose, onCreate }: CreateFlowModalPr
                 onChange={(e) => setAiPrompt(e.target.value)}
                 rows={4}
                 placeholder="e.g. Build an e-commerce microservices architecture with Next.js web app, API Gateway, Auth service, Stripe payments, Kafka queue, Redis cache, and PostgreSQL database..."
-                className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-slate-900 placeholder-slate-400 leading-relaxed"
+                className="w-full px-3.5 py-2.5 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 leading-relaxed"
                 autoFocus
               />
             </div>
 
             {/* Quick Inspiration Chips */}
             <div>
-              <span className="text-[11px] font-medium text-slate-400 block mb-1.5">
+              <span className="text-[11px] font-medium text-slate-400 dark:text-slate-500 block mb-1.5">
                 Quick Inspiration Presets:
               </span>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -269,12 +269,12 @@ export function CreateFlowModal({ isOpen, onClose, onCreate }: CreateFlowModalPr
                       setAiPrompt(preset.prompt);
                       setAiCategory(preset.category);
                     }}
-                    className="p-2.5 rounded-xl border border-slate-200 bg-white hover:border-indigo-300 hover:bg-indigo-50/40 text-left transition-all group cursor-pointer"
+                    className="p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-indigo-300 dark:hover:border-indigo-600 hover:bg-indigo-50/40 dark:hover:bg-indigo-950/30 text-left transition-all group cursor-pointer"
                   >
-                    <span className="text-xs font-semibold text-slate-800 group-hover:text-indigo-700">
+                    <span className="text-xs font-semibold text-slate-800 dark:text-slate-200 group-hover:text-indigo-700 dark:group-hover:text-indigo-400">
                       {preset.label}
                     </span>
-                    <p className="text-[10px] text-slate-500 line-clamp-1 mt-0.5">
+                    <p className="text-[10px] text-slate-500 dark:text-slate-400 line-clamp-1 mt-0.5">
                       {preset.prompt}
                     </p>
                   </button>
@@ -284,15 +284,15 @@ export function CreateFlowModal({ isOpen, onClose, onCreate }: CreateFlowModalPr
 
             {/* Category Selector */}
             <div>
-              <label className="text-xs font-semibold text-slate-700 block mb-1.5">
+              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1.5">
                 Target Architecture Domain
               </label>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 {[
-                  { id: 'system-design', label: 'System Design', icon: <Network className="w-3.5 h-3.5 text-indigo-600" /> },
-                  { id: 'flowchart', label: 'Flowchart', icon: <GitFork className="w-3.5 h-3.5 text-amber-600" /> },
-                  { id: 'er-diagram', label: 'ER Diagram', icon: <Database className="w-3.5 h-3.5 text-emerald-600" /> },
-                  { id: 'general', label: 'General', icon: <Layers className="w-3.5 h-3.5 text-slate-600" /> },
+                  { id: 'system-design', label: 'System Design', icon: <Network className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" /> },
+                  { id: 'flowchart', label: 'Flowchart', icon: <GitFork className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" /> },
+                  { id: 'er-diagram', label: 'ER Diagram', icon: <Database className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" /> },
+                  { id: 'general', label: 'General', icon: <Layers className="w-3.5 h-3.5 text-slate-600 dark:text-slate-400" /> },
                 ].map((item) => (
                   <button
                     key={item.id}
@@ -300,30 +300,30 @@ export function CreateFlowModal({ isOpen, onClose, onCreate }: CreateFlowModalPr
                     onClick={() => setAiCategory(item.id as DiagramCategory)}
                     className={`p-2.5 rounded-xl border text-left flex items-center justify-between transition-all cursor-pointer ${
                       aiCategory === item.id
-                        ? 'border-indigo-500 bg-indigo-50/50 ring-2 ring-indigo-500/20'
-                        : 'border-slate-200 hover:border-slate-300 bg-white'
+                        ? 'border-indigo-500 dark:border-indigo-500 bg-indigo-50/50 dark:bg-indigo-950/40 ring-2 ring-indigo-500/20'
+                        : 'border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600 bg-white dark:bg-slate-800'
                     }`}
                   >
                     <div className="flex items-center gap-1.5">
                       {item.icon}
-                      <span className="text-xs font-semibold text-slate-800">{item.label}</span>
+                      <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">{item.label}</span>
                     </div>
-                    {aiCategory === item.id && <Check className="w-3 h-3 text-indigo-600" />}
+                    {aiCategory === item.id && <Check className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />}
                   </button>
                 ))}
               </div>
             </div>
 
             {/* Footer Actions */}
-            <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
-              <span className="text-[11px] text-slate-400">
+            <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+              <span className="text-[11px] text-slate-400 dark:text-slate-500">
                 Powered by Google Gemini 2.5 Flash
               </span>
               <div className="flex items-center gap-2">
                 <button
                   type="button"
                   onClick={onClose}
-                  className="px-3.5 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+                  className="px-3.5 py-2 text-xs font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
                 >
                   Cancel
                 </button>
@@ -355,11 +355,11 @@ export function CreateFlowModal({ isOpen, onClose, onCreate }: CreateFlowModalPr
             {/* Diagram Title */}
             <div>
               <div className="flex items-center justify-between mb-1.5">
-                <label className="text-xs font-semibold text-slate-700">Diagram Name</label>
+                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">Diagram Name</label>
                 <button
                   type="button"
                   onClick={handleRandomizeTitle}
-                  className="text-[11px] text-blue-600 hover:text-blue-700 flex items-center gap-1 font-medium cursor-pointer"
+                  className="text-[11px] text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 flex items-center gap-1 font-medium cursor-pointer"
                 >
                   <Sparkles className="w-3 h-3" />
                   <span>Suggest Name</span>
@@ -370,20 +370,20 @@ export function CreateFlowModal({ isOpen, onClose, onCreate }: CreateFlowModalPr
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder="e.g. Distributed Payment Gateway & Kafka Broker"
-                className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-slate-900 placeholder-slate-400"
+                className="w-full px-3.5 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500"
                 autoFocus
               />
             </div>
 
             {/* Diagram Category Selector */}
             <div>
-              <label className="text-xs font-semibold text-slate-700 block mb-2">Diagram Type</label>
+              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-2">Diagram Type</label>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
                 {[
-                  { id: 'system-design', label: 'System Design', icon: <Network className="w-4 h-4 text-indigo-600" /> },
-                  { id: 'flowchart', label: 'Flowchart', icon: <GitFork className="w-4 h-4 text-amber-600" /> },
-                  { id: 'er-diagram', label: 'ER Diagram', icon: <Database className="w-4 h-4 text-emerald-600" /> },
-                  { id: 'general', label: 'General Canvas', icon: <Layers className="w-4 h-4 text-slate-600" /> },
+                  { id: 'system-design', label: 'System Design', icon: <Network className="w-4 h-4 text-indigo-600 dark:text-indigo-400" /> },
+                  { id: 'flowchart', label: 'Flowchart', icon: <GitFork className="w-4 h-4 text-amber-600 dark:text-amber-400" /> },
+                  { id: 'er-diagram', label: 'ER Diagram', icon: <Database className="w-4 h-4 text-emerald-600 dark:text-emerald-400" /> },
+                  { id: 'general', label: 'General Canvas', icon: <Layers className="w-4 h-4 text-slate-600 dark:text-slate-400" /> },
                 ].map((item) => (
                   <button
                     key={item.id}
@@ -391,15 +391,15 @@ export function CreateFlowModal({ isOpen, onClose, onCreate }: CreateFlowModalPr
                     onClick={() => setCategory(item.id as DiagramCategory)}
                     className={`p-3 rounded-xl border text-left flex flex-col justify-between transition-all cursor-pointer ${
                       category === item.id
-                        ? 'border-blue-500 bg-blue-50/50 ring-2 ring-blue-500/20'
-                        : 'border-slate-200 hover:border-slate-300 bg-white'
+                        ? 'border-blue-500 dark:border-blue-500 bg-blue-50/50 dark:bg-blue-950/40 ring-2 ring-blue-500/20'
+                        : 'border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600 bg-white dark:bg-slate-800'
                     }`}
                   >
                     <div className="flex items-center justify-between w-full mb-1">
                       {item.icon}
-                      {category === item.id && <Check className="w-3.5 h-3.5 text-blue-600" />}
+                      {category === item.id && <Check className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />}
                     </div>
-                    <span className="text-xs font-semibold text-slate-800">{item.label}</span>
+                    <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">{item.label}</span>
                   </button>
                 ))}
               </div>
@@ -407,7 +407,7 @@ export function CreateFlowModal({ isOpen, onClose, onCreate }: CreateFlowModalPr
 
             {/* Starter Template Selection */}
             <div>
-              <label className="text-xs font-semibold text-slate-700 block mb-2">
+              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-2">
                 Starter Template
               </label>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
@@ -417,19 +417,19 @@ export function CreateFlowModal({ isOpen, onClose, onCreate }: CreateFlowModalPr
                     onClick={() => setTemplateId(tpl.id)}
                     className={`p-3 rounded-xl border cursor-pointer transition-all ${
                       templateId === tpl.id
-                        ? 'border-blue-500 bg-blue-50/40 ring-2 ring-blue-500/20'
-                        : 'border-slate-200 hover:border-slate-300 bg-white'
+                        ? 'border-blue-500 dark:border-blue-500 bg-blue-50/40 dark:bg-blue-950/40 ring-2 ring-blue-500/20'
+                        : 'border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600 bg-white dark:bg-slate-800'
                     }`}
                   >
                     <div className="flex items-center justify-between mb-1">
-                      <span className="text-xs font-semibold text-slate-900 truncate">
+                      <span className="text-xs font-semibold text-slate-900 dark:text-slate-100 truncate">
                         {tpl.title}
                       </span>
-                      <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-600">
+                      <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300">
                         {tpl.badge}
                       </span>
                     </div>
-                    <p className="text-[11px] text-slate-500 line-clamp-2 leading-relaxed">
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-2 leading-relaxed">
                       {tpl.description}
                     </p>
                   </div>
@@ -440,13 +440,13 @@ export function CreateFlowModal({ isOpen, onClose, onCreate }: CreateFlowModalPr
             {/* Canvas Options */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
               <div>
-                <label className="text-xs font-semibold text-slate-700 block mb-1.5">
+                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1.5">
                   Background Style
                 </label>
                 <select
                   value={gridType}
                   onChange={(e) => setGridType(e.target.value as any)}
-                  className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500 text-slate-800"
+                  className="w-full px-3 py-1.5 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:border-blue-500 text-slate-800 dark:text-slate-200"
                 >
                   <option value="dots">Dots Grid (Default)</option>
                   <option value="lines">Lines / Blueprint Grid</option>
@@ -456,13 +456,13 @@ export function CreateFlowModal({ isOpen, onClose, onCreate }: CreateFlowModalPr
               </div>
 
               <div>
-                <label className="text-xs font-semibold text-slate-700 block mb-1.5">
+                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1.5">
                   Default Connection Line
                 </label>
                 <select
                   value={defaultEdgeType}
                   onChange={(e) => setDefaultEdgeType(e.target.value as any)}
-                  className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500 text-slate-800"
+                  className="w-full px-3 py-1.5 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:border-blue-500 text-slate-800 dark:text-slate-200"
                 >
                   <option value="smoothstep">SmoothStep (Orthogonal angles)</option>
                   <option value="bezier">Curved (Bezier)</option>
@@ -474,7 +474,7 @@ export function CreateFlowModal({ isOpen, onClose, onCreate }: CreateFlowModalPr
             {/* Description & Tags */}
             <div className="space-y-3 pt-1">
               <div>
-                <label className="text-xs font-semibold text-slate-700 block mb-1.5">
+                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1.5">
                   Description (Optional)
                 </label>
                 <input
@@ -482,12 +482,12 @@ export function CreateFlowModal({ isOpen, onClose, onCreate }: CreateFlowModalPr
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   placeholder="Short summary of this diagram..."
-                  className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500 text-slate-800 placeholder-slate-400"
+                  className="w-full px-3 py-1.5 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:border-blue-500 text-slate-800 dark:text-slate-200 placeholder-slate-400 dark:placeholder-slate-500"
                 />
               </div>
 
               <div>
-                <label className="text-xs font-semibold text-slate-700 block mb-1.5">
+                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1.5">
                   Tags (Comma-separated)
                 </label>
                 <input
@@ -495,17 +495,17 @@ export function CreateFlowModal({ isOpen, onClose, onCreate }: CreateFlowModalPr
                   value={tagsInput}
                   onChange={(e) => setTagsInput(e.target.value)}
                   placeholder="e.g. Production, AWS, Microservices"
-                  className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500 text-slate-800 placeholder-slate-400"
+                  className="w-full px-3 py-1.5 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:border-blue-500 text-slate-800 dark:text-slate-200 placeholder-slate-400 dark:placeholder-slate-500"
                 />
               </div>
             </div>
 
             {/* Footer Actions */}
-            <div className="pt-4 border-t border-slate-100 flex items-center justify-end gap-2.5">
+            <div className="pt-4 border-t border-slate-100 dark:border-slate-800 flex items-center justify-end gap-2.5">
               <button
                 type="button"
                 onClick={onClose}
-                className="px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+                className="px-4 py-2 text-xs font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
               >
                 Cancel
               </button>

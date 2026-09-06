@@ -64,6 +64,7 @@ import { PropertiesPanel } from '@/components/editor/PropertiesPanel';
 import { AiAssistantModal } from '@/components/editor/AiAssistantModal';
 import { AlignmentToolbar } from '@/components/editor/AlignmentToolbar';
 import { CollaboratorCursors } from '@/components/editor/CollaboratorCursors';
+import { AlignmentGuides } from '@/components/editor/AlignmentGuides';
 import { CommandPalette, CommandPaletteAction } from '@/components/editor/CommandPalette';
 
 const nodeTypes = {
@@ -171,7 +172,10 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
       diagram.users?.some((u) => u.userId === user.id && u.accesstype === 'ADMIN') ||
       !diagram.userId);
   const isViewer =
-    !isTemplate && !!user && !isAdmin && !!diagram.users?.some((u) => u.userId === user.id && u.accesstype === 'VIEWER');
+    !isTemplate &&
+    !!user &&
+    !isAdmin &&
+    (!!diagram.users?.some((u) => u.userId === user.id && u.accesstype === 'VIEWER') || diagram.isPublic === true);
   const userAccess: 'ADMIN' | 'VIEWER' | 'TEMPLATE' | 'GUEST' = isTemplate
     ? 'TEMPLATE'
     : isAdmin
@@ -992,6 +996,85 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
     };
   }, []);
 
+  // Smart alignment guides: while dragging a node, check its edges/center
+  // against every other node's edges/center (in flow coordinates, so this
+  // works regardless of zoom); anything within SNAP_THRESHOLD gets both a
+  // guide line (rendered by AlignmentGuides, via the guides state) and an
+  // actual snap of the dragged node's position to match exactly. Only ever
+  // considers the single node being dragged — multi-node drag doesn't get
+  // guides, which covers the overwhelmingly common case without the added
+  // complexity of guiding a whole group's bounding box.
+  const SNAP_THRESHOLD = 6;
+  const [guides, setGuides] = useState<{ vertical: number[]; horizontal: number[] }>({
+    vertical: [],
+    horizontal: [],
+  });
+
+  const getNodeBounds = useCallback(
+    (node: Node) => {
+      const { width, height } = getNodeSize(node);
+      return {
+        left: node.position.x,
+        right: node.position.x + width,
+        centerX: node.position.x + width / 2,
+        top: node.position.y,
+        bottom: node.position.y + height,
+        centerY: node.position.y + height / 2,
+      };
+    },
+    [getNodeSize]
+  );
+
+  const onNodeDrag = useCallback(
+    (_event: MouseEvent | TouchEvent, draggedNode: Node) => {
+      if (!isAdmin) return;
+      const bounds = getNodeBounds(draggedNode);
+      const others = nodes.filter((n) => n.id !== draggedNode.id);
+
+      let snapX: number | null = null;
+      let snapY: number | null = null;
+      const vGuides = new Set<number>();
+      const hGuides = new Set<number>();
+
+      for (const other of others) {
+        const ob = getNodeBounds(other);
+        for (const myVal of [bounds.left, bounds.centerX, bounds.right]) {
+          for (const otherVal of [ob.left, ob.centerX, ob.right]) {
+            if (Math.abs(myVal - otherVal) <= SNAP_THRESHOLD) {
+              vGuides.add(otherVal);
+              if (snapX === null) snapX = draggedNode.position.x + (otherVal - myVal);
+            }
+          }
+        }
+        for (const myVal of [bounds.top, bounds.centerY, bounds.bottom]) {
+          for (const otherVal of [ob.top, ob.centerY, ob.bottom]) {
+            if (Math.abs(myVal - otherVal) <= SNAP_THRESHOLD) {
+              hGuides.add(otherVal);
+              if (snapY === null) snapY = draggedNode.position.y + (otherVal - myVal);
+            }
+          }
+        }
+      }
+
+      setGuides({ vertical: Array.from(vGuides), horizontal: Array.from(hGuides) });
+
+      if (snapX !== null || snapY !== null) {
+        setNodes((nds) =>
+          nds.map((n) =>
+            n.id === draggedNode.id
+              ? { ...n, position: { x: snapX ?? n.position.x, y: snapY ?? n.position.y } }
+              : n
+          )
+        );
+      }
+    },
+    [isAdmin, nodes, getNodeBounds, setNodes]
+  );
+
+  const onNodeDragStop = useCallback(() => {
+    setGuides({ vertical: [], horizontal: [] });
+  }, []);
+
   const handleAlign = useCallback(
     (mode: 'left' | 'hcenter' | 'right' | 'top' | 'vcenter' | 'bottom') => {
       if (!isAdmin || selectedNodes.length < 2) return;
@@ -1425,6 +1508,8 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
             onNodesChange={isAdmin ? onNodesChangeTracked : undefined}
             onEdgesChange={isAdmin ? onEdgesChangeTracked : undefined}
             onConnect={onConnect}
+            onNodeDrag={onNodeDrag}
+            onNodeDragStop={onNodeDragStop}
             nodesDraggable={isAdmin}
             nodesConnectable={isAdmin}
             elementsSelectable={true}
@@ -1484,6 +1569,8 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
           )}
 
           <CollaboratorCursors collaborators={collaborators} />
+
+          <AlignmentGuides vertical={guides.vertical} horizontal={guides.horizontal} />
 
           {isAdmin && nodes.length === 0 && (
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
@@ -1551,6 +1638,7 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
               nodeCount={nodes.length}
               edgeCount={edges.length}
               readOnly={!isAdmin}
+              diagramId={diagram.id}
             />
           </div>
         )}

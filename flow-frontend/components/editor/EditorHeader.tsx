@@ -26,11 +26,13 @@ import {
   ExternalLink,
   LogIn,
   LogOut,
+  Share2,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { Diagram, DiagramCategory } from '@/types/diagram';
 import { FlowCraftLogo } from '@/components/brand/FlowCraftLogo';
 import { colorForId } from '@/components/editor/CollaboratorCursors';
+import { ShareModal } from '@/components/editor/ShareModal';
 
 interface EditorHeaderProps {
   diagram: Diagram;
@@ -100,6 +102,7 @@ export function EditorHeader({
   const [titleValue, setTitleValue] = useState(diagram.title);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const [canvasSettingsOpen, setCanvasSettingsOpen] = useState(false);
+  const [shareModalOpen, setShareModalOpen] = useState(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const canvasSettingsRef = useRef<HTMLDivElement>(null);
   const exportMenuRef = useRef<HTMLDivElement>(null);
@@ -445,6 +448,18 @@ export function EditorHeader({
           )}
         </div>
 
+        {/* Share (ADMIN only — a viewer has no one to grant access to) */}
+        {userAccessType === 'ADMIN' && (
+          <button
+            onClick={() => setShareModalOpen(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg transition-colors cursor-pointer"
+            title="Share this diagram"
+          >
+            <Share2 className="w-3.5 h-3.5 text-slate-500" />
+            <span className="hidden sm:inline">Share</span>
+          </button>
+        )}
+
         {/* Hidden JSON file input */}
         <input
           type="file"
@@ -559,6 +574,13 @@ export function EditorHeader({
           </button>
         )}
       </div>
+
+      <ShareModal
+        isOpen={shareModalOpen}
+        onClose={() => setShareModalOpen(false)}
+        diagramId={diagram.id}
+        diagramTitle={diagram.title}
+      />
     </header>
   );
 }

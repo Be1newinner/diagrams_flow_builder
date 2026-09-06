@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { Node, Edge } from '@xyflow/react';
 import {
   Sliders,
@@ -25,6 +25,7 @@ import {
   ChevronsUpDown,
   Ungroup,
   Unlink,
+  History,
 } from 'lucide-react';
 import {
   SystemNodeData,
@@ -57,6 +58,7 @@ interface PropertiesPanelProps {
   nodeCount: number;
   edgeCount: number;
   readOnly?: boolean;
+  diagramId?: string;
 }
 
 // Best-effort human label across every node type's differently-shaped data.
@@ -156,8 +158,9 @@ export function PropertiesPanel({
   nodeCount,
   edgeCount,
   readOnly = false,
+  diagramId,
 }: PropertiesPanelProps) {
-  const [activeTab, setActiveTab] = useState<'properties' | 'layers'>('properties');
+  const [activeTab, setActiveTab] = useState<'properties' | 'layers' | 'activity'>('properties');
 
   const tabBar = (
     <div className="flex items-center gap-1 border-b border-slate-100 px-2 pt-2 shrink-0 bg-white">
@@ -186,6 +189,21 @@ export function PropertiesPanel({
           {nodeCount + edgeCount}
         </span>
       </button>
+      {/* ADMIN-only, same gating as eject/disconnect/delete actions — a
+          VIEWER can see the diagram but not who's been changing it. */}
+      {!readOnly && diagramId && (
+        <button
+          onClick={() => setActiveTab('activity')}
+          className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-semibold rounded-t-lg border-b-2 -mb-px transition-colors cursor-pointer ${
+            activeTab === 'activity'
+              ? 'border-blue-600 text-blue-700'
+              : 'border-transparent text-slate-500 hover:text-slate-700'
+          }`}
+        >
+          <History className="w-3.5 h-3.5" />
+          Activity
+        </button>
+      )}
     </div>
   );
 
@@ -204,6 +222,15 @@ export function PropertiesPanel({
           onDeleteEdge={onDeleteEdge}
           readOnly={readOnly}
         />
+      </aside>
+    );
+  }
+
+  if (activeTab === 'activity' && diagramId) {
+    return (
+      <aside className="w-full h-full bg-white border-l border-slate-200 flex flex-col select-none z-20 shadow-2xs">
+        {tabBar}
+        <ActivityLog diagramId={diagramId} />
       </aside>
     );
   }
@@ -1226,6 +1253,79 @@ function BackgroundColorControl({ value, onChange, label }: BackgroundColorContr
           </button>
         )}
       </div>
+    </div>
+  );
+}
+
+interface AuditEntry {
+  userId: string;
+  action: 'created' | 'updated' | 'deleted';
+  timestamp: string;
+}
+
+const ACTION_LABEL: Record<AuditEntry['action'], string> = {
+  created: 'created this diagram',
+  updated: 'updated this diagram',
+  deleted: 'deleted this diagram',
+};
+
+function relativeTime(iso: string): string {
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diffMs / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
+function ActivityLog({ diagramId }: { diagramId: string }) {
+  // null = not fetched yet; [] = fetched, empty — same trick used elsewhere
+  // in this codebase to avoid a separate "loading" flag that would need a
+  // synchronous setState call at the top of the effect body.
+  const [entries, setEntries] = useState<AuditEntry[] | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/diagrams/${diagramId}/audit-log`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!cancelled) setEntries(data?.activity || []);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [diagramId]);
+
+  return (
+    <div className="flex-1 overflow-y-auto text-xs">
+      <div className="px-3.5 pt-3 pb-1.5 text-[11px] font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+        <History className="w-3 h-3" />
+        Recent Activity
+      </div>
+      {entries === null ? (
+        <div className="px-3.5 py-6 text-center text-slate-400">Loading…</div>
+      ) : entries.length === 0 ? (
+        <div className="px-3.5 py-6 text-center text-slate-400 italic">No recorded activity yet.</div>
+      ) : (
+        <ul className="px-3.5 space-y-2.5 pb-4">
+          {entries.map((entry, idx) => (
+            <li key={idx} className="flex items-start gap-2 text-slate-600">
+              <span className="w-1.5 h-1.5 rounded-full bg-blue-400 mt-1.5 shrink-0" />
+              <div className="min-w-0">
+                <span className="font-mono text-[11px] text-slate-700 truncate block">{entry.userId}</span>
+                <span className="text-[11px] text-slate-500">
+                  {ACTION_LABEL[entry.action]} · {relativeTime(entry.timestamp)}
+                </span>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+      <p className="px-3.5 pb-4 text-[10px] text-slate-300 leading-relaxed border-t border-slate-100 pt-3 mt-2">
+        Shows create/update/delete events only — not a field-level diff of what changed.
+      </p>
     </div>
   );
 }

@@ -1,14 +1,27 @@
 @import "tailwindcss";
 @import "@xyflow/react/dist/style.css";
 
+/* Tailwind v4 defaults `dark:` to prefers-color-scheme. This overrides it to
+   be class-based instead (`.dark` on <html>, toggled by ThemeContext) so a
+   user's explicit choice always wins over their OS setting. Currently only
+   applied to the dashboard shell (app/page.tsx, DashboardHeader, DiagramCard,
+   and its modals) — the flow editor canvas and its panels are a much larger
+   surface (every node type, every panel) and stay light-only for now. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
   --background: #f8fafc;
   --foreground: #0f172a;
 }
 
+.dark {
+  --background: #0f172a;
+  --foreground: #f1f5f9;
+}
+
 body {
-  background: #f8fafc;
-  color: #0f172a;
+  background: var(--background);
+  color: var(--foreground);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;

@@ -203,7 +203,7 @@ export default function DashboardPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col">
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col">
       {/* Toast Notification */}
       {toastMessage && (
         <div className="fixed bottom-6 right-6 z-50 bg-slate-900 text-white px-4 py-2.5 rounded-xl shadow-xl text-xs font-medium flex items-center gap-2 animate-in fade-in slide-in-from-bottom-2">
@@ -232,24 +232,24 @@ export default function DashboardPage() {
         {/* Banner with stats & inspiration — richer copy for a brand-new
             user (0 diagrams of their own yet, so all they see below are the
             3 built-in starter templates) than for a returning one. */}
-        <div className="mb-8 p-6 rounded-2xl bg-white border border-slate-200/80 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+        <div className="mb-8 p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
           <div className="space-y-1">
-            <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-100">
+            <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border border-blue-100 dark:border-blue-800">
               <Sparkles className="w-3.5 h-3.5" />
               <span>Interactive Architecture Studio</span>
             </div>
-            <h2 className="text-xl font-bold text-slate-900 tracking-tight">
+            <h2 className="text-xl font-bold text-slate-900 dark:text-slate-50 tracking-tight">
               {userOwnedCount === 0
                 ? 'Welcome to FlowCraft — let’s build your first diagram'
                 : 'Design Systems, Workflows & Database Relational Schemas'}
             </h2>
-            <p className="text-xs text-slate-500 max-w-2xl leading-relaxed">
+            <p className="text-xs text-slate-500 dark:text-slate-400 max-w-2xl leading-relaxed">
               {userOwnedCount === 0 ? (
                 <>
                   Drag and drop cloud components, flowchart nodes, sticky notes, and SQL entity tables
                   onto a canvas — or start from one of the 3 sample templates below and duplicate it to
                   make it yours. Press{' '}
-                  <kbd className="px-1 py-0.5 rounded bg-slate-100 border border-slate-200 font-mono text-[10px]">
+                  <kbd className="px-1 py-0.5 rounded bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-mono text-[10px]">
                     Ctrl/⌘+K
                   </kbd>{' '}
                   any time to jump between diagrams.
@@ -292,12 +292,12 @@ export default function DashboardPage() {
           </div>
         ) : (
           /* Empty State */
-          <div className="text-center py-16 bg-white border border-dashed border-slate-300 rounded-2xl p-8">
-            <div className="w-12 h-12 rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center mx-auto mb-3">
+          <div className="text-center py-16 bg-white dark:bg-slate-900 border border-dashed border-slate-300 dark:border-slate-700 rounded-2xl p-8">
+            <div className="w-12 h-12 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 flex items-center justify-center mx-auto mb-3">
               <Search className="w-6 h-6" />
             </div>
-            <h3 className="text-sm font-bold text-slate-800">No diagrams found</h3>
-            <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+            <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100">No diagrams found</h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-sm mx-auto">
               {searchQuery
                 ? `No diagrams matched "${searchQuery}". Try a different keyword or clear your filter.`
                 : 'Get started by creating your very first diagram flow.'}
@@ -309,7 +309,7 @@ export default function DashboardPage() {
                     setSearchQuery('');
                     setSelectedCategory('all');
                   }}
-                  className="px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded-lg border border-slate-200 transition-colors"
+                  className="px-3 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 transition-colors"
                 >
                   Clear Filters
                 </button>
@@ -327,11 +327,11 @@ export default function DashboardPage() {
       </main>
 
       {/* Dashboard Footer */}
-      <footer className="mt-auto border-t border-slate-200 bg-white py-6 shadow-2xs">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-500">
+      <footer className="mt-auto border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 py-6 shadow-2xs">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-500 dark:text-slate-400">
           <div className="flex items-center gap-2">
-            <span className="font-semibold text-slate-700">FlowCraft</span>
-            <span className="text-slate-300">•</span>
+            <span className="font-semibold text-slate-700 dark:text-slate-300">FlowCraft</span>
+            <span className="text-slate-300 dark:text-slate-600">•</span>
             <span>Visual Diagram & System Design Studio</span>
           </div>
 
