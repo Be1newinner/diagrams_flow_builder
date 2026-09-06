@@ -9,6 +9,8 @@ import {
   useNodesState,
   useEdgesState,
   addEdge,
+  reconnectEdge,
+  ConnectionMode,
   Connection,
   Edge,
   Node,
@@ -508,6 +510,38 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
       setEdges((eds) => addEdge(newEdge, eds));
     },
     [user, isAdmin, openLoginModal, nodes, edges, defaultEdgeType, recordHistory, setEdges]
+  );
+
+  // Dragging an existing edge's endpoint onto a different handle (same node,
+  // a different side, or a different node entirely) re-points that end
+  // instead of requiring delete-and-recreate. React Flow renders the
+  // draggable endpoint handles itself once `edgesReconnectable` and
+  // `onReconnect` are wired up — same guards as onConnect above.
+  const onReconnect = useCallback(
+    (oldEdge: Edge, newConnection: Connection) => {
+      if (!isAdmin) return;
+      if (newConnection.source === newConnection.target) {
+        setToastMessage('A node can’t connect to itself.');
+        setTimeout(() => setToastMessage(null), 3000);
+        return;
+      }
+      const isDuplicate = edges.some(
+        (e) =>
+          e.id !== oldEdge.id &&
+          e.source === newConnection.source &&
+          e.target === newConnection.target &&
+          (e.sourceHandle || null) === (newConnection.sourceHandle || null) &&
+          (e.targetHandle || null) === (newConnection.targetHandle || null)
+      );
+      if (isDuplicate) {
+        setToastMessage('These two nodes are already connected on this handle pair.');
+        setTimeout(() => setToastMessage(null), 3000);
+        return;
+      }
+      recordHistory(nodes, edges);
+      setEdges((eds) => reconnectEdge(oldEdge, newConnection, eds));
+    },
+    [isAdmin, nodes, edges, recordHistory, setEdges]
   );
 
   // Selection change
@@ -1510,11 +1544,30 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
             onNodesChange={isAdmin ? onNodesChangeTracked : undefined}
             onEdgesChange={isAdmin ? onEdgesChangeTracked : undefined}
             onConnect={onConnect}
+            onReconnect={onReconnect}
+            edgesReconnectable={isAdmin}
+            // Every node's Handle is hardcoded per side as either 'source'
+            // (right/bottom) or 'target' (top/left) — see the node
+            // components. React Flow's default 'strict' connectionMode only
+            // lets a drag START from a 'source' handle and END on a
+            // 'target' one, so starting a connection from a top or left
+            // handle (both 'target') silently failed no matter what side
+            // it was dropped on. 'loose' drops that pairing requirement:
+            // any handle can start or end a connection, on any side.
+            connectionMode={ConnectionMode.Loose}
             onNodeDrag={onNodeDrag}
             onNodeDragStop={onNodeDragStop}
             nodesDraggable={isAdmin}
             nodesConnectable={isAdmin}
             elementsSelectable={true}
+            // React Flow's default multiSelectionKeyCode is 'Meta' alone —
+            // the Windows/Linux key, not Ctrl, which is what everyone on
+            // those platforms actually reaches for. Accepting either lets
+            // Ctrl+click (Win/Linux) and Cmd+click (Mac) both add a node to
+            // the selection; dragging any selected node then moves the
+            // whole group together, which is React Flow's built-in behavior
+            // once multiple nodes are selected — no extra drag logic needed.
+            multiSelectionKeyCode={['Meta', 'Control']}
             onSelectionChange={onSelectionChange}
             onDragOver={onDragOver}
             onDrop={onDrop}
@@ -1568,6 +1621,26 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
               onDistribute={handleDistribute}
               onMatchSize={handleMatchSize}
             />
+          )}
+
+          {/* Discoverability hint for multi-select — the alignment toolbar
+              above only appears once 2+ nodes are already selected, so
+              without this there's no on-canvas clue the gesture exists at
+              all. Hidden as soon as something is selected or the canvas is
+              too sparse for it to matter. */}
+          {isAdmin && selectedNodes.length === 0 && nodes.length >= 2 && (
+            <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 pointer-events-none">
+              <div className="flex items-center gap-1.5 bg-white/90 border border-slate-200 rounded-full shadow-xs px-3 py-1 text-[11px] text-slate-500">
+                <kbd className="px-1 py-0.5 rounded bg-slate-100 border border-slate-200 font-mono text-[10px]">
+                  Shift
+                </kbd>
+                <span>+ drag, or</span>
+                <kbd className="px-1 py-0.5 rounded bg-slate-100 border border-slate-200 font-mono text-[10px]">
+                  Ctrl/⌘
+                </kbd>
+                <span>+ click to select multiple, then drag any of them together</span>
+              </div>
+            </div>
           )}
 
           <CollaboratorCursors collaborators={collaborators} />
