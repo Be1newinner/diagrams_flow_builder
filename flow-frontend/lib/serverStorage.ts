@@ -170,14 +170,13 @@ function withAccessCheck(diagram: Diagram, userId?: string | null): Diagram | nu
     return diagram;
   }
 
-  // `isPublic` only ever grants VIEW access to any signed-in user — it never
-  // adds them to `users[]`, so saveServerDiagram/deleteServerDiagram's ADMIN
-  // checks (which only ever consult `users[]`) remain untouched by this.
+  // `isPublic` grants VIEW access to literally anyone, signed in or not —
+  // it never adds them to `users[]`, so saveServerDiagram/deleteServerDiagram's
+  // ADMIN checks (which only ever consult `users[]`) remain untouched by
+  // this, and an anonymous visitor can never end up with edit rights.
   const hasAccess =
-    !!userId &&
-    (diagram.userId === userId ||
-      diagram.users?.some((u) => u.userId === userId) ||
-      diagram.isPublic === true);
+    diagram.isPublic === true ||
+    (!!userId && (diagram.userId === userId || diagram.users?.some((u) => u.userId === userId)));
 
   if (!hasAccess) return null;
 

@@ -171,11 +171,13 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
     (diagram.userId === user.id ||
       diagram.users?.some((u) => u.userId === user.id && u.accesstype === 'ADMIN') ||
       !diagram.userId);
+  // A public diagram is viewable read-only by anyone — signed in or not —
+  // so this intentionally does NOT require `user` the way isAdmin does.
   const isViewer =
     !isTemplate &&
-    !!user &&
     !isAdmin &&
-    (!!diagram.users?.some((u) => u.userId === user.id && u.accesstype === 'VIEWER') || diagram.isPublic === true);
+    (diagram.isPublic === true ||
+      (!!user && !!diagram.users?.some((u) => u.userId === user.id && u.accesstype === 'VIEWER')));
   const userAccess: 'ADMIN' | 'VIEWER' | 'TEMPLATE' | 'GUEST' = isTemplate
     ? 'TEMPLATE'
     : isAdmin
@@ -1707,7 +1709,7 @@ export default function FlowEditorPage() {
       setLoading(true);
       // Always the server's current copy — no local cache to fall back to
       // or go stale.
-      const serverDiagram = await getDiagram(id, user?.id);
+      const serverDiagram = await getDiagram(id);
       if (isMounted) {
         setDiagram(serverDiagram);
         setLoading(false);

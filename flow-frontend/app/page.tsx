@@ -150,7 +150,7 @@ export default function DashboardPage() {
 
   const handleExportJSON = async (id: string) => {
     try {
-      const json = await exportDiagramJSON(id, user?.id);
+      const json = await exportDiagramJSON(id);
       const diagram = diagrams.find((d) => d.id === id);
       const blob = new Blob([json], { type: 'application/json' });
       const url = URL.createObjectURL(blob);

@@ -8,13 +8,13 @@ export async function GET(
   props: { params: Promise<{ id: string }> }
 ) {
   const { id } = await props.params;
+  // No early auth-required bail-out here: a diagram shared via "everyone can
+  // view" (isPublic) must be viewable by a fully anonymous visitor too.
+  // getServerDiagram/withAccessCheck below still enforce every other rule —
+  // an unauthenticated request only ever gets back a diagram that is a
+  // template or explicitly isPublic; anything else falls through to null
+  // exactly as before.
   const userId = await resolveAuthUserId(request);
-  if (!userId) {
-    return NextResponse.json(
-      { error: 'Authentication required. You must be signed in to view diagrams.' },
-      { status: 401 }
-    );
-  }
 
   const diagram = await getServerDiagram(id, userId);
   if (!diagram) {

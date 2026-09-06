@@ -41,14 +41,17 @@ export async function getDiagrams(userId?: string | null): Promise<Diagram[]> {
   return ok && Array.isArray(data) ? data : STARTER_TEMPLATES;
 }
 
-export async function getDiagram(id: string, userId?: string | null): Promise<Diagram | null> {
+export async function getDiagram(id: string): Promise<Diagram | null> {
   // Starter templates are static, bundled constants — not a cache of
   // anything server-side, so no fetch is needed for them.
   const template = STARTER_TEMPLATES.find((t) => t.id === id);
   if (template) return template;
 
-  if (!userId) return null;
-
+  // No early bail-out for a missing userId: a diagram shared with "everyone
+  // can view" must load for a fully anonymous visitor too. The API route
+  // (and getServerDiagram/withAccessCheck behind it) is what actually
+  // decides — it returns the diagram for a public one and 404s otherwise,
+  // same as it always has for a signed-in user without access.
   const { ok, data } = await apiFetch<Diagram>(`/api/diagrams/${id}`);
   return ok ? data : null;
 }
@@ -176,7 +179,7 @@ export async function createDiagram(
 }
 
 export async function duplicateDiagram(id: string, userId?: string | null): Promise<Diagram | null> {
-  const source = await getDiagram(id, userId);
+  const source = await getDiagram(id);
   if (!source) return null;
 
   const cloned: Diagram = {
@@ -210,8 +213,8 @@ export async function deleteDiagram(id: string): Promise<boolean> {
   return ok;
 }
 
-export async function exportDiagramJSON(id: string, userId?: string | null): Promise<string> {
-  const diagram = await getDiagram(id, userId);
+export async function exportDiagramJSON(id: string): Promise<string> {
+  const diagram = await getDiagram(id);
   if (!diagram) throw new Error('Diagram not found');
   return JSON.stringify(diagram, null, 2);
 }
