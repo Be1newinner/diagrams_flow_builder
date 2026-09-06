@@ -15,6 +15,8 @@ import {
 import { logDiagramActivity, deleteDiagramActivity, getDiagramActivity } from './auditLog';
 import { findUserById } from './userStorage';
 import { sendMentionEmail } from './mailer';
+import { summarizeDiagramChange } from './diagramDiff';
+import { formatRelativeTime } from './timeFormat';
 
 const DATA_DIR = path.resolve(process.cwd(), '../data');
 const DATA_FILE = path.join(DATA_DIR, 'diagrams.json');
@@ -357,7 +359,19 @@ export async function saveServerDiagram(
   diagram: Diagram,
   userId: string,
   preFetchedExisting?: Diagram | null,
-  opts?: { commentOnly?: boolean; actorType?: 'human' | 'mcp' }
+  opts?: {
+    commentOnly?: boolean;
+    actorType?: 'human' | 'mcp';
+    // False only for a debounced autosave — lets logDiagramActivity merge
+    // it into the previous entry instead of minting a new one. Defaults to
+    // true (a real checkpoint) for every other caller: manual save, MCP
+    // tool calls, diagram creation, and restores.
+    checkpoint?: boolean;
+    // Overrides the auto-generated diff description — used by restores,
+    // where "restored to version from 2h ago" is far more useful than
+    // whatever the diff between the two states happens to say.
+    description?: string;
+  }
 ): Promise<Diagram> {
   // Prevent altering system sample templates
   if (diagram.isTemplate || diagram.id.startsWith('template-')) {
@@ -449,7 +463,9 @@ export async function saveServerDiagram(
     userId,
     existing ? 'updated' : 'created',
     opts?.actorType ?? 'human',
-    { nodes: updated.nodes, edges: updated.edges }
+    { nodes: updated.nodes, edges: updated.edges },
+    opts?.description ?? summarizeDiagramChange(existing, updated),
+    opts?.checkpoint ?? true
   );
 
   // Notify anyone with this diagram open — another tab, another user, or an
@@ -601,5 +617,9 @@ export async function restoreDiagramSnapshot(
     nodes: entry.snapshot.nodes,
     edges: entry.snapshot.edges,
   };
-  return saveServerDiagram(updated, adminUserId, existing, { actorType: 'human' });
+  return saveServerDiagram(updated, adminUserId, existing, {
+    actorType: 'human',
+    checkpoint: true,
+    description: `restored to version from ${formatRelativeTime(entry.timestamp)}`,
+  });
 }

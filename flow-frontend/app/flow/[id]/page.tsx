@@ -301,7 +301,11 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
   // The actual save, shared by the debounced autosave effect below and by
   // the manual "Save this version" button — both must save identically
   // (same payload, same conflict handling), the button just skips the wait.
-  const performSave = useCallback(() => {
+  // `checkpoint` is false only for the debounced autosave, so a run of
+  // pauses-while-editing merges into one activity entry instead of each one
+  // minting its own (see lib/auditLog.ts) — a manual save always stands on
+  // its own.
+  const performSave = useCallback((checkpoint: boolean) => {
     if (isTemplate || !canEdit) return;
     if (!isDirtyRef.current) return;
     setIsSaving(true);
@@ -319,7 +323,7 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
         defaultEdgeType,
       },
     };
-    saveDiagram(updated, user?.id).then((result) => {
+    saveDiagram(updated, user?.id, checkpoint).then((result) => {
       setIsSaving(false);
       saveInFlightRef.current = false;
       if (result.status === 'ok' || result.status === 'created') {
@@ -351,7 +355,7 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
       return;
     }
     setIsSaving(true);
-    saveTimeoutRef.current = setTimeout(performSave, 600);
+    saveTimeoutRef.current = setTimeout(() => performSave(false), 600);
 
     return () => {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
@@ -373,7 +377,7 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
       setTimeout(() => setToastMessage(null), 2000);
       return;
     }
-    performSave();
+    performSave(true);
   }, [performSave]);
 
   // Applies a server-fetched diagram to everything that actually drives the

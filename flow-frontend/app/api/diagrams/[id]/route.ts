@@ -60,7 +60,11 @@ export async function PUT(
     );
 
   try {
-    const { baseVersion, ...body }: Partial<Diagram> & { baseVersion?: string } = await request.json();
+    const {
+      baseVersion,
+      checkpoint,
+      ...body
+    }: Partial<Diagram> & { baseVersion?: string; checkpoint?: boolean } = await request.json();
 
     // Comments are a lighter-weight permission than full editing (see the
     // `canComment` note in app/flow/[id]/page.tsx) — anyone who can at
@@ -110,6 +114,10 @@ export async function PUT(
     const saved = await saveServerDiagram(updated, userId, existing, {
       commentOnly: isCommentOnlyEdit,
       actorType: authContext?.source ?? 'human',
+      // Only the browser's debounced autosave ever sends `checkpoint: false`.
+      // Everything else (manual save, comment-only edits, MCP tool calls,
+      // which don't know about this field at all) defaults to a checkpoint.
+      checkpoint: checkpoint ?? true,
     });
     return NextResponse.json(saved);
   } catch (error: any) {

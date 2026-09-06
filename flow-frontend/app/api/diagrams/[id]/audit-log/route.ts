@@ -47,6 +47,7 @@ export async function GET(request: Request, props: { params: Promise<{ id: strin
     actorType: entry.actorType,
     action: entry.action,
     timestamp: entry.timestamp,
+    description: entry.description,
     restorable: !!entry.snapshot,
   }));
 

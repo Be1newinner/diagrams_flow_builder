@@ -68,7 +68,12 @@ export type SaveResult =
 // tab, another user, or an MCP tool call saved in between — the server
 // rejects with 409 instead of letting last-write-wins silently clobber
 // that other edit. Callers should inspect the returned SaveResult.
-export function saveDiagram(diagram: Diagram, userId?: string | null): Promise<SaveResult> {
+// `checkpoint` controls whether this save gets its own activity/version
+// entry or can be merged into the previous one (see logDiagramActivity in
+// lib/auditLog.ts) — pass `false` only for a debounced autosave; leave the
+// default `true` for a deliberate save (the "Save this version" button, or
+// the initial save of a new diagram).
+export function saveDiagram(diagram: Diagram, userId?: string | null, checkpoint: boolean = true): Promise<SaveResult> {
   // Cannot modify built-in starter templates
   if (diagram.isTemplate || diagram.id.startsWith('template-')) {
     return Promise.resolve({ status: 'error' });
@@ -90,7 +95,7 @@ export function saveDiagram(diagram: Diagram, userId?: string | null): Promise<S
   return fetch(`/api/diagrams/${diagram.id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ...payload, baseVersion }),
+    body: JSON.stringify({ ...payload, baseVersion, checkpoint }),
   })
     .then(async (res): Promise<SaveResult> => {
       if (res.status === 409) {
