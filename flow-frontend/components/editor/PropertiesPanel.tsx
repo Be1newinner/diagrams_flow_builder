@@ -26,6 +26,11 @@ import {
   Ungroup,
   Unlink,
   History,
+  Move,
+  ArrowUp,
+  ArrowRight,
+  ArrowDown,
+  ArrowLeft,
 } from 'lucide-react';
 import {
   SystemNodeData,
@@ -44,6 +49,7 @@ interface PropertiesPanelProps {
   edges: Edge[];
   onUpdateNodeData: (id: string, newData: Record<string, any>) => void;
   onUpdateEdgeData: (id: string, newData: Record<string, any>) => void;
+  onMoveEdgeEndpoint: (id: string, end: 'source' | 'target', handleId: 'top' | 'bottom' | 'left' | 'right') => void;
   onDuplicateNode: (id: string) => void;
   onDeleteNode: (id: string) => void;
   onDeleteEdge: (id: string) => void;
@@ -144,6 +150,7 @@ export function PropertiesPanel({
   edges,
   onUpdateNodeData,
   onUpdateEdgeData,
+  onMoveEdgeEndpoint,
   onDuplicateNode,
   onDeleteNode,
   onDeleteEdge,
@@ -931,6 +938,58 @@ export function PropertiesPanel({
                 />
               ))}
             </div>
+          </div>
+
+          <div className="pt-3 border-t border-slate-100">
+            <div className="flex items-center gap-1.5 mb-1">
+              <Move className="w-3.5 h-3.5 text-blue-600" />
+              <label className="font-semibold text-slate-700">Move Edge</label>
+            </div>
+            <p className="text-[11px] text-slate-400 mb-2.5 leading-relaxed">
+              Pick which side of each node this connection attaches to.
+            </p>
+
+            {(['source', 'target'] as const).map((end) => {
+              const nodeId = end === 'source' ? selectedEdge.source : selectedEdge.target;
+              const node = nodes.find((n) => n.id === nodeId);
+              const currentSide = end === 'source' ? selectedEdge.sourceHandle : selectedEdge.targetHandle;
+              const sides: { id: 'top' | 'right' | 'bottom' | 'left'; label: string; icon: React.ReactNode }[] = [
+                { id: 'top', label: 'Top', icon: <ArrowUp className="w-3.5 h-3.5" /> },
+                { id: 'right', label: 'Right', icon: <ArrowRight className="w-3.5 h-3.5" /> },
+                { id: 'bottom', label: 'Bottom', icon: <ArrowDown className="w-3.5 h-3.5" /> },
+                { id: 'left', label: 'Left', icon: <ArrowLeft className="w-3.5 h-3.5" /> },
+              ];
+              return (
+                <fieldset key={end} className="mb-3 last:mb-0">
+                  <legend className="text-[11px] font-semibold text-slate-600 mb-1.5">
+                    {end === 'source' ? 'Start Node' : 'End Node'}
+                    {node && <span className="font-normal text-slate-400"> — {nodeLabel(node)}</span>}
+                  </legend>
+                  <div className="grid grid-cols-4 gap-1.5">
+                    {sides.map((side) => (
+                      <label
+                        key={side.id}
+                        className={`flex flex-col items-center gap-1 py-1.5 rounded-lg border cursor-pointer transition-colors ${
+                          currentSide === side.id
+                            ? 'border-blue-500 bg-blue-50 text-blue-700'
+                            : 'border-slate-200 text-slate-500 hover:border-slate-300 hover:bg-slate-50'
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name={`edge-${selectedEdge.id}-${end}`}
+                          className="sr-only"
+                          checked={currentSide === side.id}
+                          onChange={() => onMoveEdgeEndpoint(selectedEdge.id, end, side.id)}
+                        />
+                        {side.icon}
+                        <span className="text-[10px] font-medium">{side.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
+              );
+            })}
           </div>
         </fieldset>
       </aside>

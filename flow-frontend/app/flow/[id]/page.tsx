@@ -718,6 +718,50 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
     [isAdmin, setEdges]
   );
 
+  // Move one end of an edge to a different side of the SAME node it's
+  // already attached to — the Properties panel's explicit alternative to
+  // dragging the edge endpoint on the canvas (which needs a precise grab of
+  // a ~9px handle and isn't discoverable). `end` says which endpoint moves;
+  // the node itself never changes here, only which of its 4 handles the
+  // edge is anchored to.
+  const handleMoveEdgeEndpoint = useCallback(
+    (edgeId: string, end: 'source' | 'target', handleId: 'top' | 'bottom' | 'left' | 'right') => {
+      if (!isAdmin) return;
+      const edge = edges.find((e) => e.id === edgeId);
+      if (!edge) return;
+
+      const nextSourceHandle = end === 'source' ? handleId : edge.sourceHandle;
+      const nextTargetHandle = end === 'target' ? handleId : edge.targetHandle;
+      if (nextSourceHandle === edge.sourceHandle && nextTargetHandle === edge.targetHandle) return;
+
+      const isDuplicate = edges.some(
+        (e) =>
+          e.id !== edgeId &&
+          e.source === edge.source &&
+          e.target === edge.target &&
+          (e.sourceHandle || null) === (nextSourceHandle || null) &&
+          (e.targetHandle || null) === (nextTargetHandle || null)
+      );
+      if (isDuplicate) {
+        setToastMessage('These two nodes are already connected on this handle pair.');
+        setTimeout(() => setToastMessage(null), 3000);
+        return;
+      }
+
+      recordHistory(nodes, edges);
+      isDirtyRef.current = true;
+      setEdges((eds) =>
+        eds.map((e) => {
+          if (e.id !== edgeId) return e;
+          const updated = { ...e, sourceHandle: nextSourceHandle, targetHandle: nextTargetHandle };
+          setSelectedEdge(updated);
+          return updated;
+        })
+      );
+    },
+    [isAdmin, nodes, edges, recordHistory, setEdges]
+  );
+
   // Duplicate Node (Admin only)
   const handleDuplicateNode = useCallback(
     (nodeId: string) => {
@@ -1699,6 +1743,7 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
               edges={edges}
               onUpdateNodeData={handleUpdateNodeData}
               onUpdateEdgeData={handleUpdateEdgeData}
+              onMoveEdgeEndpoint={handleMoveEdgeEndpoint}
               onDuplicateNode={handleDuplicateNode}
               onDeleteNode={handleDeleteNode}
               onDeleteEdge={handleDeleteEdge}
