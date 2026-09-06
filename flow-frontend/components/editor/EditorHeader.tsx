@@ -28,6 +28,7 @@ import {
   LogOut,
   Share2,
   MessageSquare,
+  CheckCheck,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { Diagram, DiagramCategory } from '@/types/diagram';
@@ -66,6 +67,9 @@ interface EditorHeaderProps {
   onOpenAiModal?: () => void;
   commentModeActive?: boolean;
   onToggleCommentMode?: () => void;
+  hideResolvedComments?: boolean;
+  onToggleHideResolvedComments?: () => void;
+  onJumpToCollaborator?: (id: string) => void;
   userAccessType?: 'ADMIN' | 'EDITOR' | 'VIEWER' | 'TEMPLATE' | 'GUEST';
 }
 
@@ -100,6 +104,9 @@ export function EditorHeader({
   onOpenAiModal,
   commentModeActive,
   onToggleCommentMode,
+  hideResolvedComments,
+  onToggleHideResolvedComments,
+  onJumpToCollaborator,
   userAccessType,
 }: EditorHeaderProps) {
   const { user, openLoginModal, logout } = useAuth();
@@ -226,20 +233,22 @@ export function EditorHeader({
             )}
           </div>
 
-          {/* Presence: who else has this diagram open right now */}
+          {/* Presence: who else has this diagram open right now — click
+              someone to jump the canvas to whatever they're looking at. */}
           {Object.keys(collaborators).length > 0 && (
             <div className="hidden md:flex items-center -space-x-1.5" title="Currently viewing">
               {Object.entries(collaborators)
                 .slice(0, 4)
                 .map(([id, c]) => (
-                  <div
+                  <button
                     key={id}
-                    className="w-6 h-6 rounded-full border-2 border-white text-white flex items-center justify-center text-[10px] font-bold shadow-sm"
+                    onClick={() => onJumpToCollaborator?.(id)}
+                    className="w-6 h-6 rounded-full border-2 border-white text-white flex items-center justify-center text-[10px] font-bold shadow-sm cursor-pointer hover:scale-110 hover:z-10 transition-transform"
                     style={{ backgroundColor: colorForId(id) }}
-                    title={c.name}
+                    title={`Jump to ${c.name}`}
                   >
                     {c.name.charAt(0).toUpperCase()}
-                  </div>
+                  </button>
                 ))}
               {Object.keys(collaborators).length > 4 && (
                 <div className="w-6 h-6 rounded-full border-2 border-white bg-slate-400 text-white flex items-center justify-center text-[9px] font-bold shadow-sm">
@@ -335,6 +344,18 @@ export function EditorHeader({
             title={commentModeActive ? 'Click the canvas to place a comment (or click here to cancel)' : 'Add a comment'}
           >
             <MessageSquare className="w-4 h-4" />
+          </button>
+        )}
+
+        {user && userAccessType !== 'GUEST' && userAccessType !== 'TEMPLATE' && onToggleHideResolvedComments && (
+          <button
+            onClick={onToggleHideResolvedComments}
+            className={`p-1.5 rounded-lg transition-all ${
+              hideResolvedComments ? 'bg-blue-600 text-white' : 'text-slate-600 hover:text-slate-900 hover:bg-white'
+            }`}
+            title={hideResolvedComments ? 'Show resolved comments' : 'Hide resolved comments'}
+          >
+            <CheckCheck className="w-4 h-4" />
           </button>
         )}
 

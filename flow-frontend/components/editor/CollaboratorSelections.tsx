@@ -58,6 +58,17 @@ export function CollaboratorSelections({ collaborators, nodes, edges }: Collabor
                 className="absolute inset-0 rounded-lg"
                 style={{ border: `2.5px solid ${color}`, boxShadow: `0 0 0 3px ${color}33` }}
               />
+              {/* A small expanding-and-fading ring (Tailwind's built-in
+                  "ping" animation, the same one apps use for a live/notify
+                  dot) so a fresh clash is visually loud without requiring
+                  the whole outline to flicker in and out. */}
+              <span className="absolute -top-1.5 -left-1.5 flex h-3 w-3">
+                <span
+                  className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75"
+                  style={{ backgroundColor: color }}
+                />
+                <span className="relative inline-flex rounded-full h-3 w-3 ring-2 ring-white" style={{ backgroundColor: color }} />
+              </span>
               <span
                 className="absolute -top-6 left-0 px-1.5 py-0.5 rounded-md text-[10px] font-semibold text-white whitespace-nowrap shadow-sm"
                 style={{ backgroundColor: color }}
@@ -89,8 +100,12 @@ export function CollaboratorSelections({ collaborators, nodes, edges }: Collabor
             className="absolute -translate-x-1/2 -translate-y-1/2"
             style={{ transform: `translate(${screenX}px, ${screenY}px)` }}
           >
+            <span
+              className="animate-ping absolute inline-flex h-3.5 w-3.5 rounded-full opacity-75"
+              style={{ backgroundColor: color }}
+            />
             <div
-              className="w-3.5 h-3.5 rounded-full ring-2 ring-white shadow-sm"
+              className="relative w-3.5 h-3.5 rounded-full ring-2 ring-white shadow-sm"
               style={{ backgroundColor: color }}
             />
             <span

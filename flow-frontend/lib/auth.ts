@@ -16,8 +16,23 @@ async function payloadIsUsable(payload: { userId: string; jti?: string } | null)
   return isSessionActive(payload.userId, payload.jti);
 }
 
-const ACCESS_SECRET = process.env.JWT_ACCESS_SECRET || 'flowcraft_access_secret_super_secure_key_1d';
-const REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'flowcraft_refresh_secret_super_secure_key_28d';
+// A missing secret in production must fail loudly at startup, not silently
+// fall back to a value that's sitting in this file in plaintext — that
+// fallback existing at all meant a prod deploy missing these env vars would
+// sign every token with a secret anyone can read, a full auth bypass. The
+// fallback stays available in development only, so local setup still works
+// without an .env.local.
+function requiredSecret(envVar: 'JWT_ACCESS_SECRET' | 'JWT_REFRESH_SECRET', devFallback: string): string {
+  const value = process.env[envVar];
+  if (value) return value;
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error(`${envVar} must be set in production — refusing to start with an insecure default secret.`);
+  }
+  return devFallback;
+}
+
+const ACCESS_SECRET = requiredSecret('JWT_ACCESS_SECRET', 'flowcraft_access_secret_super_secure_key_1d');
+const REFRESH_SECRET = requiredSecret('JWT_REFRESH_SECRET', 'flowcraft_refresh_secret_super_secure_key_28d');
 
 // Token Expiry constants
 export const ACCESS_TOKEN_EXPIRY = '1d'; // 1 Day

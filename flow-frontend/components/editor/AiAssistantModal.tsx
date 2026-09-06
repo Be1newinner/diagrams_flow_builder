@@ -24,6 +24,11 @@ interface AiAssistantModalProps {
   nodes: Node[];
   edges: Edge[];
   onApplyChanges: (newNodes: Node[], newEdges: Edge[], summary?: string) => void;
+  // Names of everyone else who currently has this diagram open — a bulk AI
+  // rewrite replaces the whole nodes/edges array at once, which would
+  // silently stomp on whatever they're mid-edit on. Not an outright block
+  // (they might just be viewing), just a clear warning before you commit.
+  activeCollaboratorNames?: string[];
 }
 
 const QUICK_ACTIONS = [
@@ -61,6 +66,7 @@ export function AiAssistantModal({
   nodes,
   edges,
   onApplyChanges,
+  activeCollaboratorNames = [],
 }: AiAssistantModalProps) {
   const [prompt, setPrompt] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -147,6 +153,23 @@ export function AiAssistantModal({
             </div>
           )}
 
+          {activeCollaboratorNames.length > 0 && (
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800 flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-semibold">
+                  {activeCollaboratorNames.length === 1
+                    ? `${activeCollaboratorNames[0]} has this diagram open right now`
+                    : `${activeCollaboratorNames.length} other people have this diagram open right now`}
+                </p>
+                <p className="text-[11px] text-amber-700 mt-0.5">
+                  Applying AI changes replaces the whole canvas at once — it can overwrite whatever they&apos;re
+                  currently working on.
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* Prompt Textarea */}
           <div>
             <label className="text-xs font-semibold text-slate-700 block mb-1.5">
@@ -208,7 +231,11 @@ export function AiAssistantModal({
             <button
               type="submit"
               disabled={isLoading || !prompt.trim()}
-              className="inline-flex items-center gap-2 px-5 py-2 text-xs font-semibold text-white bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 disabled:opacity-50 rounded-xl transition-all shadow-sm shadow-indigo-500/20 cursor-pointer"
+              className={`inline-flex items-center gap-2 px-5 py-2 text-xs font-semibold text-white disabled:opacity-50 rounded-xl transition-all shadow-sm cursor-pointer ${
+                activeCollaboratorNames.length > 0
+                  ? 'bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 shadow-amber-500/20'
+                  : 'bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 shadow-indigo-500/20'
+              }`}
             >
               {isLoading ? (
                 <>
@@ -218,7 +245,7 @@ export function AiAssistantModal({
               ) : (
                 <>
                   <Sparkles className="w-3.5 h-3.5" />
-                  <span>Apply AI Changes</span>
+                  <span>{activeCollaboratorNames.length > 0 ? 'Apply Anyway' : 'Apply AI Changes'}</span>
                 </>
               )}
             </button>

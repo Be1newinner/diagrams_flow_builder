@@ -117,6 +117,37 @@ export function saveDiagram(diagram: Diagram, userId?: string | null): Promise<S
     .catch((): SaveResult => ({ status: 'error' }));
 }
 
+// Lightweight sibling of saveDiagram for viewers: canComment is a lower bar
+// than canEdit (see the note on the client), so a plain viewer's comment
+// add/reply/resolve must not go through the full-diagram PUT, which the
+// server rejects for non-editors. Sending only `comments` in the body is
+// what the server recognizes as a comment-only edit and allows regardless
+// of edit permission.
+export function saveDiagramComments(
+  diagramId: string,
+  comments: Diagram['comments'],
+  baseVersion: string
+): Promise<SaveResult> {
+  return fetch(`/api/diagrams/${diagramId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ comments, baseVersion }),
+  })
+    .then(async (res): Promise<SaveResult> => {
+      if (res.status === 409) {
+        const body = await res.json().catch(() => null);
+        const latest = body?.latest as Diagram | undefined;
+        return latest ? { status: 'conflict', latest } : { status: 'error' };
+      }
+      if (res.ok) {
+        const saved = await res.json();
+        return { status: 'ok', diagram: saved };
+      }
+      return { status: 'error' };
+    })
+    .catch((): SaveResult => ({ status: 'error' }));
+}
+
 // Fetches the authoritative current copy from the server. Used to detect
 // drift while a diagram is open (see the polling effect in FlowEditorCanvas).
 export async function fetchLatestFromServer(id: string): Promise<Diagram | null> {

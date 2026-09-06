@@ -48,6 +48,7 @@ import { Diagram, DiagramCategory, DiagramComment } from '@/types/diagram';
 import {
   getDiagram,
   saveDiagram,
+  saveDiagramComments,
   duplicateDiagram,
   importDiagramJSON,
   fetchLatestFromServer,
@@ -122,6 +123,10 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
   const [comments, setComments] = useState<DiagramComment[]>(initialDiagram.comments || []);
   const [selectedComment, setSelectedComment] = useState<DiagramComment | null>(null);
   const [commentModeActive, setCommentModeActive] = useState(false);
+  // Purely a local view preference (like gridType), not synced to the
+  // diagram — resolved comments still exist and still sync for everyone,
+  // this just declutters your own canvas.
+  const [hideResolvedComments, setHideResolvedComments] = useState(false);
 
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
   const [selectedEdge, setSelectedEdge] = useState<Edge | null>(null);
@@ -151,6 +156,12 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
   // server, clobbering a newer edit made elsewhere (another tab, another
   // user, or an MCP tool call) in the gap between page load and that PUT.
   const isDirtyRef = useRef(false);
+
+  // Separate from isDirtyRef: a viewer (canComment but !canEdit) can still
+  // dirty a comment, but must never trigger the full-diagram autosave below
+  // (the server rejects that PUT for non-editors) — only the lighter
+  // comments-only save path further down.
+  const commentsDirtyRef = useRef(false);
 
   // Set when a save attempt (or background poll) discovers the server has a
   // newer version than the one this tab started editing from.
@@ -347,6 +358,8 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
     };
   }, [nodes, edges, comments, diagram, gridType, gridGap, gridSize, defaultEdgeType, user?.id, canEdit, isTemplate, performSave]);
 
+  const commentSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // Manual "Save this version" button: cancel any pending debounced save
   // (so we don't double-save moments later) and save right now instead of
   // waiting out the 600ms debounce.
@@ -539,6 +552,51 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
       });
     },
     [user?.name]
+  );
+
+  // "Jump to" a collaborator from the header avatar stack: centers the
+  // viewport on whatever they currently have selected (resolved to an
+  // actual position from the live nodes/edges, not just re-broadcasting
+  // their raw x/y), falling back to their last-known cursor position if
+  // they don't have anything selected right now.
+  const handleJumpToCollaborator = useCallback(
+    (collabId: string) => {
+      const collab = collaborators[collabId];
+      if (!collab) return;
+
+      if (collab.selectedType === 'node' && collab.selectedId) {
+        const node = nodes.find((n) => n.id === collab.selectedId);
+        if (node) {
+          const width = node.width ?? node.measured?.width ?? 160;
+          const height = node.height ?? node.measured?.height ?? 80;
+          reactFlowInstance.setCenter(node.position.x + width / 2, node.position.y + height / 2, {
+            zoom: Math.max(reactFlowInstance.getZoom(), 1),
+            duration: 500,
+          });
+          return;
+        }
+      }
+      if (collab.selectedType === 'edge' && collab.selectedId) {
+        const edge = edges.find((e) => e.id === collab.selectedId);
+        const sourceNode = edge && nodes.find((n) => n.id === edge.source);
+        const targetNode = edge && nodes.find((n) => n.id === edge.target);
+        if (sourceNode && targetNode) {
+          const sourceCx = sourceNode.position.x + (sourceNode.width ?? sourceNode.measured?.width ?? 160) / 2;
+          const sourceCy = sourceNode.position.y + (sourceNode.height ?? sourceNode.measured?.height ?? 80) / 2;
+          const targetCx = targetNode.position.x + (targetNode.width ?? targetNode.measured?.width ?? 160) / 2;
+          const targetCy = targetNode.position.y + (targetNode.height ?? targetNode.measured?.height ?? 80) / 2;
+          reactFlowInstance.setCenter((sourceCx + targetCx) / 2, (sourceCy + targetCy) / 2, {
+            zoom: Math.max(reactFlowInstance.getZoom(), 1),
+            duration: 500,
+          });
+          return;
+        }
+      }
+      if (collab.x !== undefined && collab.y !== undefined) {
+        reactFlowInstance.setCenter(collab.x, collab.y, { zoom: reactFlowInstance.getZoom(), duration: 500 });
+      }
+    },
+    [collaborators, nodes, edges, reactFlowInstance]
   );
 
   const handleReloadLatest = useCallback(() => {
@@ -1057,6 +1115,30 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
   // handleUpdateComment); deleting one is author-or-ADMIN (moderation).
   const canComment = !isTemplate && !!user;
 
+  // Debounced comments-only autosave for viewers: canComment is a lower bar
+  // than canEdit, so a viewer's comment/reply/resolve must persist through
+  // the lighter comments-only save path — the full-diagram autosave further
+  // up is canEdit-gated and would never fire for them.
+  useEffect(() => {
+    if (isTemplate || canEdit || !canComment) return;
+    if (!commentsDirtyRef.current) return;
+    commentSaveTimeoutRef.current = setTimeout(() => {
+      saveDiagramComments(diagram.id, comments, diagramUpdatedAtRef.current).then((result) => {
+        if (result.status === 'ok') {
+          commentsDirtyRef.current = false;
+          diagramUpdatedAtRef.current = result.diagram.updatedAt;
+          setDiagram((prev) => ({ ...prev, comments: result.diagram.comments, updatedAt: result.diagram.updatedAt }));
+        } else if (result.status === 'conflict') {
+          setConflictDiagramState(result.latest);
+        }
+      });
+    }, 600);
+
+    return () => {
+      if (commentSaveTimeoutRef.current) clearTimeout(commentSaveTimeoutRef.current);
+    };
+  }, [comments, diagram.id, canEdit, canComment, isTemplate]);
+
   const handleAddComment = useCallback(
     (x: number, y: number) => {
       if (!canComment || !user) return;
@@ -1071,6 +1153,7 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
         updatedAt: new Date().toISOString(),
       };
       isDirtyRef.current = true;
+      commentsDirtyRef.current = true;
       setComments((prev) => [...prev, comment]);
       setSelectedNode(null);
       setSelectedEdge(null);
@@ -1098,6 +1181,7 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
     (id: string, patch: Partial<Pick<DiagramComment, 'text' | 'bgColor' | 'borderColor'>>) => {
       if (!user) return;
       isDirtyRef.current = true;
+      commentsDirtyRef.current = true;
       setComments((prev) =>
         prev.map((c) => {
           // Author-only — not even the diagram ADMIN can edit someone
@@ -1119,10 +1203,79 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
       if (!comment) return;
       if (comment.authorId !== user.id && !isAdmin) return;
       isDirtyRef.current = true;
+      commentsDirtyRef.current = true;
       setComments((prev) => prev.filter((c) => c.id !== id));
       setSelectedComment(null);
     },
     [user, comments, isAdmin]
+  );
+
+  // Resolved/unresolved — same author-or-ADMIN permission as delete (it's a
+  // moderation action, not content editing), unlike the comment's own
+  // text/style which stays strictly author-only.
+  const handleToggleCommentResolved = useCallback(
+    (id: string) => {
+      if (!user) return;
+      isDirtyRef.current = true;
+      commentsDirtyRef.current = true;
+      setComments((prev) =>
+        prev.map((c) => {
+          if (c.id !== id) return c;
+          if (c.authorId !== user.id && !isAdmin) return c;
+          const updated = { ...c, resolved: !c.resolved, updatedAt: new Date().toISOString() };
+          setSelectedComment(updated);
+          return updated;
+        })
+      );
+    },
+    [user, isAdmin]
+  );
+
+  // Replies are open to anyone who can comment at all (not author-only like
+  // the parent comment's own text) — each reply carries its own author, so
+  // permission for editing/deleting one is evaluated per-reply, not
+  // inherited from the parent comment.
+  const handleAddCommentReply = useCallback(
+    (commentId: string, text: string) => {
+      if (!canComment || !user || !text.trim()) return;
+      isDirtyRef.current = true;
+      commentsDirtyRef.current = true;
+      const reply = {
+        id: `reply_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        text: text.trim(),
+        authorId: user.id,
+        authorName: user.name,
+        createdAt: new Date().toISOString(),
+      };
+      setComments((prev) =>
+        prev.map((c) => {
+          if (c.id !== commentId) return c;
+          const updated = { ...c, replies: [...(c.replies || []), reply] };
+          setSelectedComment(updated);
+          return updated;
+        })
+      );
+    },
+    [canComment, user]
+  );
+
+  const handleDeleteCommentReply = useCallback(
+    (commentId: string, replyId: string) => {
+      if (!user) return;
+      isDirtyRef.current = true;
+      commentsDirtyRef.current = true;
+      setComments((prev) =>
+        prev.map((c) => {
+          if (c.id !== commentId) return c;
+          const reply = (c.replies || []).find((r) => r.id === replyId);
+          if (!reply || (reply.authorId !== user.id && !isAdmin)) return c;
+          const updated = { ...c, replies: (c.replies || []).filter((r) => r.id !== replyId) };
+          setSelectedComment(updated);
+          return updated;
+        })
+      );
+    },
+    [user, isAdmin]
   );
 
   // Disconnect every edge touching a node (either as source or target),
@@ -1777,6 +1930,9 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
         onOpenAiModal={() => setIsAiModalOpen(true)}
         commentModeActive={commentModeActive}
         onToggleCommentMode={() => setCommentModeActive((v) => !v)}
+        hideResolvedComments={hideResolvedComments}
+        onToggleHideResolvedComments={() => setHideResolvedComments((v) => !v)}
+        onJumpToCollaborator={handleJumpToCollaborator}
         userAccessType={userAccess}
       />
 
@@ -2027,7 +2183,7 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
           <CollaboratorCursors collaborators={collaborators} />
           <CollaboratorSelections collaborators={collaborators} nodes={nodes} edges={edges} />
           <CommentPins
-            comments={comments}
+            comments={hideResolvedComments ? comments.filter((c) => !c.resolved) : comments}
             selectedCommentId={selectedComment?.id || null}
             onSelect={(comment) => {
               setSelectedNode(null);
@@ -2118,6 +2274,10 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
               isDiagramAdmin={isAdmin}
               onUpdateComment={handleUpdateComment}
               onDeleteComment={handleDeleteComment}
+              onToggleCommentResolved={handleToggleCommentResolved}
+              canComment={canComment}
+              onAddCommentReply={handleAddCommentReply}
+              onDeleteCommentReply={handleDeleteCommentReply}
             />
           </div>
         )}
@@ -2132,6 +2292,7 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
           diagram={diagram}
           nodes={nodes}
           edges={edges}
+          activeCollaboratorNames={Object.values(collaborators).map((c) => c.name)}
           onApplyChanges={(newNodes, newEdges, summary) => {
             recordHistory(nodes, edges);
             setNodes(newNodes);

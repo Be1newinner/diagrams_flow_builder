@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { useViewport } from '@xyflow/react';
-import { MessageCircle } from 'lucide-react';
+import { MessageCircle, Check } from 'lucide-react';
 import { DiagramComment } from '@/types/diagram';
 import { colorForId } from './CollaboratorCursors';
 
@@ -27,8 +27,9 @@ export function CommentPins({ comments, selectedCommentId, onSelect }: CommentPi
       {comments.map((comment) => {
         const screenX = comment.x * zoom + viewX;
         const screenY = comment.y * zoom + viewY;
-        const color = colorForId(comment.authorId);
+        const color = comment.resolved ? '#94a3b8' : colorForId(comment.authorId);
         const isSelected = comment.id === selectedCommentId;
+        const replyCount = comment.replies?.length || 0;
         return (
           <button
             key={comment.id}
@@ -38,7 +39,7 @@ export function CommentPins({ comments, selectedCommentId, onSelect }: CommentPi
             }}
             className={`absolute pointer-events-auto flex items-center justify-center w-7 h-7 rounded-full rounded-bl-sm shadow-md transition-transform cursor-pointer ${
               isSelected ? 'ring-2 ring-offset-2 ring-blue-400' : ''
-            }`}
+            } ${comment.resolved ? 'opacity-60' : ''}`}
             style={{
               // The pin's anchor point (its bottom-left corner, like a map
               // pin) needs to land exactly on the comment's flow position —
@@ -49,9 +50,18 @@ export function CommentPins({ comments, selectedCommentId, onSelect }: CommentPi
               transform: `translate(${screenX}px, ${screenY}px) translate(-50%, -100%) ${isSelected ? 'scale(1.25)' : ''}`,
               backgroundColor: color,
             }}
-            title={`${comment.authorName}${comment.text ? ': ' + comment.text : ' (empty comment)'}`}
+            title={`${comment.authorName}${comment.resolved ? ' (resolved)' : ''}${comment.text ? ': ' + comment.text : ' (empty comment)'}`}
           >
-            <MessageCircle className="w-4 h-4 text-white" fill={color} />
+            {comment.resolved ? (
+              <Check className="w-4 h-4 text-white" />
+            ) : (
+              <MessageCircle className="w-4 h-4 text-white" fill={color} />
+            )}
+            {replyCount > 0 && (
+              <span className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-white text-slate-700 text-[8px] font-bold flex items-center justify-center shadow border border-slate-200">
+                {replyCount}
+              </span>
+            )}
           </button>
         );
       })}

@@ -58,15 +58,23 @@ export async function PUT(
       (u) => u.userId === userId && (u.accesstype === 'ADMIN' || u.accesstype === 'EDITOR')
     );
 
-  if (!canEdit) {
-    return NextResponse.json(
-      { error: 'Forbidden: Only the diagram ADMIN or an EDITOR can edit this diagram.' },
-      { status: 403 }
-    );
-  }
-
   try {
     const { baseVersion, ...body }: Partial<Diagram> & { baseVersion?: string } = await request.json();
+
+    // Comments are a lighter-weight permission than full editing (see the
+    // `canComment` note in app/flow/[id]/page.tsx) — anyone who can at
+    // least view this diagram (we already know that, `existing` is
+    // non-null) can add/reply/resolve a comment. Recognize that case by
+    // shape: a request touching only `comments` doesn't need canEdit.
+    const bodyKeys = Object.keys(body);
+    const isCommentOnlyEdit = bodyKeys.length > 0 && bodyKeys.every((k) => k === 'comments');
+
+    if (!canEdit && !isCommentOnlyEdit) {
+      return NextResponse.json(
+        { error: 'Forbidden: Only the diagram ADMIN or an EDITOR can edit this diagram.' },
+        { status: 403 }
+      );
+    }
 
     // Optimistic concurrency check. `baseVersion` is the updatedAt the
     // client last saw when it started this edit. If the diagram we just
@@ -91,12 +99,14 @@ export async function PUT(
       ...existing,
       ...body,
       id,
-      userId,
+      // A comment-only save from a VIEWER must not reassign ownership —
+      // only stamp the acting user as owner on a real edit.
+      userId: isCommentOnlyEdit ? existing.userId : userId,
       isTemplate: false,
     };
     // Pass `existing` through to avoid a second, slightly-later read that
     // would only widen the race window this check is meant to close.
-    const saved = await saveServerDiagram(updated, userId, existing);
+    const saved = await saveServerDiagram(updated, userId, existing, { commentOnly: isCommentOnlyEdit });
     return NextResponse.json(saved);
   } catch (error: any) {
     return NextResponse.json({ error: error.message || 'Failed to update diagram' }, { status: 500 });

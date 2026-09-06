@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { Diagram, DiagramUserAccess } from '@/types/diagram';
+import { Diagram, DiagramUserAccess, DiagramComment } from '@/types/diagram';
 import { STARTER_TEMPLATES } from './templates';
 import clientPromise from './mongodb';
 import { publishDiagramUpdate } from './ably';
@@ -13,6 +13,8 @@ import {
   invalidateDiagramListCache,
 } from './diagramCache';
 import { logDiagramActivity, deleteDiagramActivity } from './auditLog';
+import { findUserById } from './userStorage';
+import { sendMentionEmail } from './mailer';
 
 const DATA_DIR = path.resolve(process.cwd(), '../data');
 const DATA_FILE = path.join(DATA_DIR, 'diagrams.json');
@@ -87,6 +89,69 @@ export function normalizeDiagramUsers(diagram: Diagram, defaultAdminId: string):
     { userId: adminId, accesstype: 'ADMIN' as const },
     ...others,
   ];
+}
+
+// --- Comment @mentions ---
+// Detects @mentions in comment text against the diagram's own collaborator
+// names, and emails only whoever is NEWLY mentioned since the comment's
+// last save (tracked via `mentionedUserIds` on the comment itself) — so
+// re-saving an unrelated change never re-sends a notification for a mention
+// that was already there. Matches by substring ("@" + their display name,
+// case-insensitive) rather than a real tokenizer, which is good enough for
+// the reasonably-sized name set a diagram's collaborator list actually is.
+async function processCommentMentions(
+  updated: Diagram,
+  existingComments: DiagramComment[] | undefined
+): Promise<void> {
+  if (!updated.comments || updated.comments.length === 0) return;
+
+  const collaboratorIds = new Set<string>();
+  if (updated.userId) collaboratorIds.add(updated.userId);
+  (updated.users || []).forEach((u) => collaboratorIds.add(u.userId));
+  if (collaboratorIds.size === 0) return;
+
+  const collaborators = (
+    await Promise.all(
+      Array.from(collaboratorIds).map(async (id) => {
+        const u = await findUserById(id);
+        return u ? { id, name: u.name, email: u.email } : null;
+      })
+    )
+  ).filter((c): c is { id: string; name: string; email: string } => !!c);
+
+  const existingById = new Map((existingComments || []).map((c) => [c.id, c]));
+  // No request object reaches this function (saveServerDiagram is called
+  // from MCP tool handlers too, not just HTTP routes, so there's no req.url
+  // to derive an origin from the way the share route does) — fall back to
+  // Vercel's own runtime-provided host, then localhost for local dev.
+  const origin =
+    process.env.NEXT_PUBLIC_APP_URL ||
+    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
+
+  for (const comment of updated.comments) {
+    const lowerText = comment.text.toLowerCase();
+    const mentioned = collaborators.filter(
+      (c) => c.id !== comment.authorId && lowerText.includes(`@${c.name.toLowerCase()}`)
+    );
+    comment.mentionedUserIds = mentioned.map((c) => c.id);
+
+    const alreadyNotified = new Set(existingById.get(comment.id)?.mentionedUserIds || []);
+    const newlyMentioned = mentioned.filter((c) => !alreadyNotified.has(c.id));
+    if (newlyMentioned.length === 0) continue;
+
+    const diagramUrl = `${origin}/flow/${updated.id}`;
+    // Best-effort, not awaited into the save path — a mail failure here
+    // must never block or fail the save that's already succeeded.
+    for (const target of newlyMentioned) {
+      sendMentionEmail({
+        to: target.email,
+        diagramTitle: updated.title,
+        diagramUrl,
+        mentionedByName: comment.authorName,
+        commentText: comment.text,
+      }).catch((err) => console.error('[Mentions] Failed to send mention email:', err));
+    }
+  }
 }
 
 // --- Main Exported Functions (MongoDB with File Fallback & User Access Control) ---
@@ -232,6 +297,31 @@ export async function getServerDiagram(id: string, userId?: string | null): Prom
   return withAccessCheck(found, userId);
 }
 
+// Unlike getServerDiagram, this ignores access control entirely — it only
+// answers "does a document with this id exist anywhere" (cache, Mongo, file
+// fallback). Needed because getServerDiagram returns null for BOTH "not
+// found" and "found but you can't see it", which POST /api/diagrams used to
+// conflate: a client-supplied id colliding with someone else's private
+// diagram looked identical to a fresh id, so the save fell through to
+// upsert-as-new and silently overwrote the other user's diagram.
+export async function diagramExistsById(id: string): Promise<boolean> {
+  if (STARTER_TEMPLATES.some((t) => t.id === id)) return true;
+  if (await getCachedDiagram(id)) return true;
+
+  if (process.env.MONGODB_URI) {
+    try {
+      const client = await clientPromise;
+      const db = client.db('flowcraft');
+      const doc = await db.collection<Diagram>('diagrams').findOne({ id }, { projection: { _id: 1 } });
+      if (doc) return true;
+    } catch (err) {
+      console.error('[MongoDB Error] diagramExistsById fallback:', err);
+    }
+  }
+
+  return getFileDiagrams().some((d) => d.id === id);
+}
+
 export const MAX_DIAGRAMS_PER_USER = 30;
 
 export async function getUserDiagramCount(userId: string): Promise<number> {
@@ -266,7 +356,8 @@ export async function getUserDiagramCount(userId: string): Promise<number> {
 export async function saveServerDiagram(
   diagram: Diagram,
   userId: string,
-  preFetchedExisting?: Diagram | null
+  preFetchedExisting?: Diagram | null,
+  opts?: { commentOnly?: boolean }
 ): Promise<Diagram> {
   // Prevent altering system sample templates
   if (diagram.isTemplate || diagram.id.startsWith('template-')) {
@@ -287,7 +378,11 @@ export async function saveServerDiagram(
         (u) => u.userId === userId && (u.accesstype === 'ADMIN' || u.accesstype === 'EDITOR')
       );
 
-    if (!canEdit) {
+    // Comments are a lighter-weight permission than full editing (mirrors
+    // the isCommentOnlyEdit check in app/api/diagrams/[id]/route.ts) — a
+    // VIEWER can save a comment-only change without EDITOR/ADMIN rights,
+    // since `existing` being non-null already proves they can view it.
+    if (!canEdit && !opts?.commentOnly) {
       throw new Error('Forbidden: Only the diagram ADMIN or an EDITOR can edit this diagram.');
     }
   } else {
@@ -311,6 +406,17 @@ export async function saveServerDiagram(
     isTemplate: false,
     updatedAt: new Date().toISOString(),
   };
+
+  // Mutates updated.comments in place (adds/refreshes mentionedUserIds) and
+  // fires off (without awaiting) any newly-triggered mention emails — must
+  // run before persistence below so the saved document reflects the
+  // refreshed mention set, but must never be allowed to fail the save
+  // itself if a lookup or the mail send throws.
+  try {
+    await processCommentMentions(updated, existing?.comments);
+  } catch (err) {
+    console.error('[Mentions] processCommentMentions error:', err);
+  }
 
   if (process.env.MONGODB_URI) {
     try {
