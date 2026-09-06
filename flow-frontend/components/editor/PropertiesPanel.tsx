@@ -38,6 +38,8 @@ import {
   MessageCircle,
   CheckCircle2,
   Send,
+  Bot,
+  RotateCcw,
 } from 'lucide-react';
 import {
   SystemNodeData,
@@ -89,6 +91,10 @@ interface PropertiesPanelProps {
   canComment?: boolean;
   onAddCommentReply: (commentId: string, text: string) => void;
   onDeleteCommentReply: (commentId: string, replyId: string) => void;
+  // Called after the Activity tab restores an earlier version, so the
+  // caller can refetch the diagram and swap it into the live canvas state
+  // immediately instead of waiting for the Ably round trip.
+  onRestored?: () => void;
 }
 
 // Best-effort human label across every node type's differently-shaped data.
@@ -205,6 +211,7 @@ export function PropertiesPanel({
   canComment,
   onAddCommentReply,
   onDeleteCommentReply,
+  onRestored,
 }: PropertiesPanelProps) {
   const [activeTab, setActiveTab] = useState<'properties' | 'layers' | 'activity'>('properties');
 
@@ -276,7 +283,7 @@ export function PropertiesPanel({
     return (
       <aside className="w-full h-full bg-white border-l border-slate-200 flex flex-col select-none z-20 shadow-2xs">
         {tabBar}
-        <ActivityLog diagramId={diagramId} />
+        <ActivityLog diagramId={diagramId} onRestored={onRestored} />
       </aside>
     );
   }
@@ -1919,9 +1926,13 @@ function CommentRepliesSection({
 }
 
 interface AuditEntry {
+  id: string;
   userId: string;
+  userName: string;
+  actorType?: 'human' | 'mcp';
   action: 'created' | 'updated' | 'deleted';
   timestamp: string;
+  restorable: boolean;
 }
 
 const ACTION_LABEL: Record<AuditEntry['action'], string> = {
@@ -1941,23 +1952,47 @@ function relativeTime(iso: string): string {
   return `${days}d ago`;
 }
 
-function ActivityLog({ diagramId }: { diagramId: string }) {
+function ActivityLog({ diagramId, onRestored }: { diagramId: string; onRestored?: () => void }) {
   // null = not fetched yet; [] = fetched, empty — same trick used elsewhere
   // in this codebase to avoid a separate "loading" flag that would need a
   // synchronous setState call at the top of the effect body.
   const [entries, setEntries] = useState<AuditEntry[] | null>(null);
+  const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  const [restoringId, setRestoringId] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    fetch(`/api/diagrams/${diagramId}/audit-log`)
+  const loadActivity = useCallback(() => {
+    return fetch(`/api/diagrams/${diagramId}/audit-log`)
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
-        if (!cancelled) setEntries(data?.activity || []);
+        setEntries(data?.activity || []);
       });
-    return () => {
-      cancelled = true;
-    };
   }, [diagramId]);
+
+  useEffect(() => {
+    loadActivity();
+  }, [loadActivity]);
+
+  const handleRestore = useCallback(
+    (entryId: string) => {
+      setRestoringId(entryId);
+      fetch(`/api/diagrams/${diagramId}/audit-log/restore`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ entryId }),
+      })
+        .then((res) => {
+          if (!res.ok) throw new Error('Restore failed');
+          return loadActivity();
+        })
+        .then(() => onRestored?.())
+        .catch(() => {})
+        .finally(() => {
+          setRestoringId(null);
+          setConfirmingId(null);
+        });
+    },
+    [diagramId, loadActivity, onRestored]
+  );
 
   return (
     <div className="flex-1 overflow-y-auto text-xs">
@@ -1971,15 +2006,52 @@ function ActivityLog({ diagramId }: { diagramId: string }) {
         <div className="px-3.5 py-6 text-center text-slate-400 italic">No recorded activity yet.</div>
       ) : (
         <ul className="px-3.5 space-y-2.5 pb-4">
-          {entries.map((entry, idx) => (
-            <li key={idx} className="flex items-start gap-2 text-slate-600">
-              <span className="w-1.5 h-1.5 rounded-full bg-blue-400 mt-1.5 shrink-0" />
-              <div className="min-w-0">
-                <span className="font-mono text-[11px] text-slate-700 truncate block">{entry.userId}</span>
-                <span className="text-[11px] text-slate-500">
-                  {ACTION_LABEL[entry.action]} · {relativeTime(entry.timestamp)}
-                </span>
+          {entries.map((entry) => (
+            <li key={entry.id || `${entry.userId}-${entry.timestamp}`} className="text-slate-600">
+              <div className="flex items-start gap-2">
+                <span className="w-1.5 h-1.5 rounded-full bg-blue-400 mt-1.5 shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <span className="text-[11px] font-semibold text-slate-700 truncate flex items-center gap-1">
+                    {entry.userName}
+                    {entry.actorType === 'mcp' && (
+                      <span title="Made via MCP/AI tool" className="inline-flex shrink-0">
+                        <Bot className="w-3 h-3 text-violet-500" />
+                      </span>
+                    )}
+                  </span>
+                  <span className="text-[11px] text-slate-500">
+                    {ACTION_LABEL[entry.action]} · {relativeTime(entry.timestamp)}
+                  </span>
+                </div>
+                {entry.restorable && confirmingId !== entry.id && (
+                  <button
+                    onClick={() => setConfirmingId(entry.id)}
+                    className="p-1 rounded text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors cursor-pointer shrink-0"
+                    title="Restore this version"
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                  </button>
+                )}
               </div>
+              {confirmingId === entry.id && (
+                <div className="mt-1.5 ml-3.5 flex items-center gap-2 text-[11px]">
+                  <span className="text-slate-500">Restore to this version?</span>
+                  <button
+                    onClick={() => handleRestore(entry.id)}
+                    disabled={restoringId === entry.id}
+                    className="px-2 py-0.5 rounded bg-blue-600 text-white font-semibold hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
+                  >
+                    {restoringId === entry.id ? 'Restoring…' : 'Confirm'}
+                  </button>
+                  <button
+                    onClick={() => setConfirmingId(null)}
+                    disabled={restoringId === entry.id}
+                    className="px-2 py-0.5 rounded text-slate-500 hover:bg-slate-100 cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              )}
             </li>
           ))}
         </ul>

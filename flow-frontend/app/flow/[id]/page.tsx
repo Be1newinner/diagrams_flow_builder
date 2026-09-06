@@ -2278,6 +2278,11 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
               canComment={canComment}
               onAddCommentReply={handleAddCommentReply}
               onDeleteCommentReply={handleDeleteCommentReply}
+              onRestored={() => {
+                fetchLatestFromServer(diagram.id).then((latest) => {
+                  if (latest) adoptDiagram(latest);
+                });
+              }}
             />
           </div>
         )}

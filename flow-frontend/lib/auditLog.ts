@@ -1,19 +1,28 @@
+import { randomUUID } from 'crypto';
+import type { Node, Edge } from '@xyflow/react';
 import { redis, isRedisConfigured } from '@/lib/redis';
 
+export interface AuditSnapshot {
+  nodes: Node[];
+  edges: Edge[];
+}
+
 export interface AuditEntry {
+  id: string;
   userId: string;
+  actorType: 'human' | 'mcp';
   action: 'created' | 'updated' | 'deleted';
   timestamp: string;
+  // Omitted for 'deleted' entries — there's nothing to restore back to.
+  snapshot?: AuditSnapshot;
 }
 
 // Per-diagram activity feed: a capped Redis list, not a growing database
-// table — this is meant as a lightweight "who touched this and when," not a
-// full change-history/diff system. Granularity is intentionally coarse
-// (created/updated/deleted, not "added node X" or "renamed title") because
-// every write path (PUT route, POST route, every MCP tool handler) already
-// funnels through one choke point in serverStorage.ts that only has the
-// final document, not a diff against the previous one — capturing field-
-// level changes would mean threading that comparison through every caller.
+// table. Each entry also carries a full nodes/edges snapshot so an entry can
+// be restored (time-travel) — every write path (PUT route, POST route,
+// every MCP tool handler) already funnels through one choke point in
+// serverStorage.ts that has the final document in hand right where activity
+// is logged, so capturing it here costs nothing extra upstream.
 const MAX_ENTRIES = 100;
 const TTL_SECONDS = 60 * 60 * 24 * 90; // 90 days — well past any diagram's normal edit cadence
 
@@ -24,10 +33,19 @@ function auditKey(diagramId: string): string {
 export async function logDiagramActivity(
   diagramId: string,
   userId: string,
-  action: AuditEntry['action']
+  action: AuditEntry['action'],
+  actorType: AuditEntry['actorType'] = 'human',
+  snapshot?: AuditSnapshot
 ): Promise<void> {
   if (!isRedisConfigured() || !redis) return;
-  const entry: AuditEntry = { userId, action, timestamp: new Date().toISOString() };
+  const entry: AuditEntry = {
+    id: randomUUID(),
+    userId,
+    actorType,
+    action,
+    timestamp: new Date().toISOString(),
+    ...(snapshot ? { snapshot } : {}),
+  };
   try {
     const key = auditKey(diagramId);
     await redis.lpush(key, entry);

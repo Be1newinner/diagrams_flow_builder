@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getServerDiagrams, getServerDiagram, saveServerDiagram, getUserDiagramCount, diagramExistsById, MAX_DIAGRAMS_PER_USER } from '@/lib/serverStorage';
-import { resolveAuthUserId } from '@/lib/auth';
+import { resolveAuthUserId, resolveAuthContext } from '@/lib/auth';
 import { Diagram } from '@/types/diagram';
 
 export async function GET(request: Request) {
@@ -17,7 +17,8 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const userId = await resolveAuthUserId(request);
+    const authContext = await resolveAuthContext(request);
+    const userId = authContext?.userId ?? null;
     if (!userId) {
       return NextResponse.json(
         { error: 'Authentication required. You must be signed in to create and save diagrams.' },
@@ -59,7 +60,7 @@ export async function POST(request: Request) {
     body.userId = userId;
     body.isTemplate = false;
 
-    const saved = await saveServerDiagram(body, userId);
+    const saved = await saveServerDiagram(body, userId, undefined, { actorType: authContext?.source ?? 'human' });
     return NextResponse.json(saved, { status: 201 });
   } catch (error: any) {
     return NextResponse.json({ error: error.message || 'Failed to create diagram' }, { status: 500 });

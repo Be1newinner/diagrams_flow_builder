@@ -12,7 +12,7 @@ import {
   setCachedDiagramList,
   invalidateDiagramListCache,
 } from './diagramCache';
-import { logDiagramActivity, deleteDiagramActivity } from './auditLog';
+import { logDiagramActivity, deleteDiagramActivity, getDiagramActivity } from './auditLog';
 import { findUserById } from './userStorage';
 import { sendMentionEmail } from './mailer';
 
@@ -357,7 +357,7 @@ export async function saveServerDiagram(
   diagram: Diagram,
   userId: string,
   preFetchedExisting?: Diagram | null,
-  opts?: { commentOnly?: boolean }
+  opts?: { commentOnly?: boolean; actorType?: 'human' | 'mcp' }
 ): Promise<Diagram> {
   // Prevent altering system sample templates
   if (diagram.isTemplate || diagram.id.startsWith('template-')) {
@@ -444,7 +444,13 @@ export async function saveServerDiagram(
   // cached list is no longer valid — simpler to drop it than merge in place.
   invalidateDiagramListCache(adminId);
 
-  logDiagramActivity(updated.id, userId, existing ? 'updated' : 'created');
+  logDiagramActivity(
+    updated.id,
+    userId,
+    existing ? 'updated' : 'created',
+    opts?.actorType ?? 'human',
+    { nodes: updated.nodes, edges: updated.edges }
+  );
 
   // Notify anyone with this diagram open — another tab, another user, or an
   // MCP tool client — right away instead of making them poll for it. This is
@@ -564,4 +570,36 @@ export async function deleteServerDiagram(id: string, userId: string): Promise<b
     deleteDiagramActivity(id);
   }
   return deleted;
+}
+
+// Restores a diagram's nodes/edges to an earlier point captured in its
+// activity log ("time travel"). Only touches content — sharing, comments,
+// and settings are left as they are now, not reverted. Goes through
+// saveServerDiagram like any other edit, so the restore itself becomes a
+// fresh, itself-restorable activity entry rather than a dead end.
+export async function restoreDiagramSnapshot(
+  diagramId: string,
+  adminUserId: string,
+  entryId: string
+): Promise<Diagram> {
+  const existing = await getServerDiagram(diagramId, adminUserId);
+  if (!existing) throw new Error('Diagram not found or access denied');
+
+  const isAdmin =
+    existing.userId === adminUserId ||
+    existing.users?.some((u) => u.userId === adminUserId && u.accesstype === 'ADMIN');
+  if (!isAdmin) throw new Error('Forbidden: Only the diagram ADMIN can restore a previous version.');
+
+  const activity = await getDiagramActivity(diagramId);
+  const entry = activity.find((e) => e.id === entryId);
+  if (!entry?.snapshot) {
+    throw new Error('That activity entry has no version to restore.');
+  }
+
+  const updated: Diagram = {
+    ...existing,
+    nodes: entry.snapshot.nodes,
+    edges: entry.snapshot.edges,
+  };
+  return saveServerDiagram(updated, adminUserId, existing, { actorType: 'human' });
 }

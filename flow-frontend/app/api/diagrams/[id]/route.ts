@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getServerDiagram, saveServerDiagram, deleteServerDiagram } from '@/lib/serverStorage';
-import { resolveAuthUserId } from '@/lib/auth';
+import { resolveAuthUserId, resolveAuthContext } from '@/lib/auth';
 import { Diagram } from '@/types/diagram';
 
 export async function GET(
@@ -28,7 +28,8 @@ export async function PUT(
   props: { params: Promise<{ id: string }> }
 ) {
   const { id } = await props.params;
-  const userId = await resolveAuthUserId(request);
+  const authContext = await resolveAuthContext(request);
+  const userId = authContext?.userId ?? null;
 
   if (!userId) {
     return NextResponse.json(
@@ -106,7 +107,10 @@ export async function PUT(
     };
     // Pass `existing` through to avoid a second, slightly-later read that
     // would only widen the race window this check is meant to close.
-    const saved = await saveServerDiagram(updated, userId, existing, { commentOnly: isCommentOnlyEdit });
+    const saved = await saveServerDiagram(updated, userId, existing, {
+      commentOnly: isCommentOnlyEdit,
+      actorType: authContext?.source ?? 'human',
+    });
     return NextResponse.json(saved);
   } catch (error: any) {
     return NextResponse.json({ error: error.message || 'Failed to update diagram' }, { status: 500 });

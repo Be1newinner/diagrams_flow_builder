@@ -196,7 +196,20 @@ export async function getAuthCookies(): Promise<{
   };
 }
 
-export async function resolveAuthUserId(request?: Request): Promise<string | null> {
+export interface AuthContext {
+  userId: string;
+  // A token with no `jti` is one minted by generateMcpToken (the only place
+  // that omits it) — every real login/refresh token always carries one. So
+  // jti presence doubles as the human/MCP signal without a schema change.
+  source: 'human' | 'mcp';
+}
+
+function contextFromPayload(payload: { userId: string; jti?: string } | null): AuthContext | null {
+  if (!payload) return null;
+  return { userId: payload.userId, source: payload.jti ? 'human' : 'mcp' };
+}
+
+export async function resolveAuthContext(request?: Request): Promise<AuthContext | null> {
   try {
     // 1. Check Authorization header
     if (request) {
@@ -204,7 +217,7 @@ export async function resolveAuthUserId(request?: Request): Promise<string | nul
       if (authHeader?.startsWith('Bearer ')) {
         const token = authHeader.substring(7);
         const payload = verifyAccessToken(token);
-        if (await payloadIsUsable(payload)) return payload!.userId;
+        if (await payloadIsUsable(payload)) return contextFromPayload(payload);
       }
 
       // Check request Cookie header directly (crucial for fetch from client components)
@@ -213,12 +226,12 @@ export async function resolveAuthUserId(request?: Request): Promise<string | nul
         const matchAccess = cookieHeader.match(new RegExp(`${ACCESS_COOKIE_NAME}=([^;]+)`));
         if (matchAccess?.[1]) {
           const payload = verifyAccessToken(matchAccess[1]);
-          if (await payloadIsUsable(payload)) return payload!.userId;
+          if (await payloadIsUsable(payload)) return contextFromPayload(payload);
         }
         const matchRefresh = cookieHeader.match(new RegExp(`${REFRESH_COOKIE_NAME}=([^;]+)`));
         if (matchRefresh?.[1]) {
           const payload = verifyRefreshToken(matchRefresh[1]);
-          if (await payloadIsUsable(payload)) return payload!.userId;
+          if (await payloadIsUsable(payload)) return contextFromPayload(payload);
         }
       }
     }
@@ -228,12 +241,12 @@ export async function resolveAuthUserId(request?: Request): Promise<string | nul
       const authCookies = await getAuthCookies();
       if (authCookies.accessToken) {
         const payload = verifyAccessToken(authCookies.accessToken);
-        if (await payloadIsUsable(payload)) return payload!.userId;
+        if (await payloadIsUsable(payload)) return contextFromPayload(payload);
       }
 
       if (authCookies.refreshToken) {
         const payload = verifyRefreshToken(authCookies.refreshToken);
-        if (await payloadIsUsable(payload)) return payload!.userId;
+        if (await payloadIsUsable(payload)) return contextFromPayload(payload);
       }
     } catch {}
 
@@ -241,4 +254,8 @@ export async function resolveAuthUserId(request?: Request): Promise<string | nul
   } catch {
     return null;
   }
+}
+
+export async function resolveAuthUserId(request?: Request): Promise<string | null> {
+  return (await resolveAuthContext(request))?.userId ?? null;
 }
