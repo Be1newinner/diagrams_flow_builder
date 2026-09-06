@@ -429,6 +429,10 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
   >({});
   const channelRef = useRef<Ably.RealtimeChannel | null>(null);
   const lastCursorSentRef = useRef(0);
+  // Bumped on every 'updated' push and every fallback-poll change, whether
+  // or not it's our own save — the Activity tab (when open) watches this to
+  // refetch instead of only ever showing what was there when it mounted.
+  const [activityFeedTick, setActivityFeedTick] = useState(0);
   // Presence.update() replaces the whole data object, not just the fields
   // you pass — so every call (cursor move, selection change) needs to carry
   // the last known cursor position forward, or a selection-only update
@@ -468,6 +472,7 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
       });
       const channel = realtime.channels.get(`diagram:${diagramIdRef.current}`);
       channel.subscribe('updated', (msg) => {
+        setActivityFeedTick((t) => t + 1);
         handleUpdate(msg.data?.updatedAt);
       });
 
@@ -507,6 +512,7 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
       if (saveInFlightRef.current) return;
       const latest = await fetchLatestFromServer(diagramIdRef.current);
       if (!latest || latest.updatedAt === diagramUpdatedAtRef.current) return;
+      setActivityFeedTick((t) => t + 1);
       if (isDirtyRef.current) {
         setConflictDiagramState(latest);
       } else {
@@ -2282,6 +2288,7 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
               canComment={canComment}
               onAddCommentReply={handleAddCommentReply}
               onDeleteCommentReply={handleDeleteCommentReply}
+              activityFeedTick={activityFeedTick}
               onRestored={() => {
                 fetchLatestFromServer(diagram.id).then((latest) => {
                   if (latest) adoptDiagram(latest);

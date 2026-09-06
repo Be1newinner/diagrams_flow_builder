@@ -48,6 +48,11 @@ export async function GET(request: Request, props: { params: Promise<{ id: strin
     action: entry.action,
     timestamp: entry.timestamp,
     description: entry.description,
+    // Totals as of this version — a size difference is often the fastest
+    // way to tell entries apart when the description alone doesn't settle
+    // it (e.g. two "edited" entries in a row).
+    nodeCount: entry.snapshot?.nodes.length,
+    edgeCount: entry.snapshot?.edges.length,
     restorable: !!entry.snapshot,
   }));
 

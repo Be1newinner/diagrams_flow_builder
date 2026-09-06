@@ -1,14 +1,39 @@
-import { Diagram } from '@/types/diagram';
+import { Diagram, Node } from '@/types/diagram';
 
 function plural(n: number, word: string): string {
   return `${n} ${word}${n === 1 ? '' : 's'}`;
 }
 
+// Every node type names itself differently (SystemNodeData.title,
+// FlowchartNodeData/GroupNodeData.label, ERTableNodeData.tableName,
+// StickyNodeData.title) — this tries them in a sensible order rather than
+// requiring the caller to know which shape a given node's data is.
+function nodeLabel(node: Node): string {
+  const data = (node.data || {}) as Record<string, unknown>;
+  const name = data.title || data.label || data.tableName;
+  return typeof name === 'string' && name.trim() ? name.trim() : 'Untitled node';
+}
+
+// Renders a set of node names as "A", "A and B", "A, B and 1 more" — used so
+// an activity entry can say which nodes changed instead of just how many,
+// which is what actually lets someone pick the right version to restore.
+function namesList(nodes: Node[], max: number = 2): string {
+  const names = nodes.map(nodeLabel);
+  if (names.length <= max) {
+    return names.length <= 1
+      ? names.join('')
+      : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+  }
+  const shown = names.slice(0, max);
+  const rest = names.length - max;
+  return `${shown.join(', ')} and ${plural(rest, 'more')}`;
+}
+
 // Cheap structural diff between two diagram states, used to give each
 // activity/version entry a human-readable description instead of just
-// "updated this diagram". Deliberately coarse (counts, not a real diff) —
-// good enough to scan a history list, not a substitute for opening the
-// version itself.
+// "updated this diagram" — naming what actually changed (by node name where
+// possible) rather than a bare count, since a count alone doesn't tell
+// anyone which version to restore to.
 export function summarizeDiagramChange(existing: Diagram | null, updated: Diagram): string {
   if (!existing) {
     const nodeCount = updated.nodes?.length || 0;
@@ -26,21 +51,21 @@ export function summarizeDiagramChange(existing: Diagram | null, updated: Diagra
   const addedNodes = updatedNodes.filter((n) => !existingNodeById.has(n.id));
   const removedNodes = existingNodes.filter((n) => !updatedNodeIds.has(n.id));
 
-  let movedCount = 0;
-  let editedCount = 0;
+  const movedNodes: Node[] = [];
+  const editedNodes: Node[] = [];
   for (const node of updatedNodes) {
     const prev = existingNodeById.get(node.id);
     if (!prev) continue;
     const moved = prev.position?.x !== node.position?.x || prev.position?.y !== node.position?.y;
     const dataChanged = JSON.stringify(prev.data) !== JSON.stringify(node.data);
-    if (moved) movedCount++;
-    if (dataChanged) editedCount++;
+    if (moved) movedNodes.push(node);
+    if (dataChanged) editedNodes.push(node);
   }
 
-  if (addedNodes.length) parts.push(`+${plural(addedNodes.length, 'node')}`);
-  if (removedNodes.length) parts.push(`-${plural(removedNodes.length, 'node')}`);
-  if (editedCount) parts.push(`${plural(editedCount, 'node')} edited`);
-  if (movedCount) parts.push(`${plural(movedCount, 'node')} moved`);
+  if (addedNodes.length) parts.push(`added ${namesList(addedNodes)}`);
+  if (removedNodes.length) parts.push(`removed ${namesList(removedNodes)}`);
+  if (editedNodes.length) parts.push(`edited ${namesList(editedNodes)}`);
+  if (movedNodes.length) parts.push(`moved ${namesList(movedNodes)}`);
 
   const existingEdges = existing.edges || [];
   const updatedEdges = updated.edges || [];
@@ -49,8 +74,8 @@ export function summarizeDiagramChange(existing: Diagram | null, updated: Diagra
   const addedEdges = updatedEdges.filter((e) => !existingEdgeIds.has(e.id));
   const removedEdges = existingEdges.filter((e) => !updatedEdgeIds.has(e.id));
 
-  if (addedEdges.length) parts.push(`+${plural(addedEdges.length, 'edge')}`);
-  if (removedEdges.length) parts.push(`-${plural(removedEdges.length, 'edge')}`);
+  if (addedEdges.length) parts.push(`+${plural(addedEdges.length, 'connection')}`);
+  if (removedEdges.length) parts.push(`-${plural(removedEdges.length, 'connection')}`);
 
   if (existing.title !== updated.title) {
     parts.push(`renamed "${existing.title}" to "${updated.title}"`);

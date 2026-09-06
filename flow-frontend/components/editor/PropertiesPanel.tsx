@@ -96,6 +96,10 @@ interface PropertiesPanelProps {
   // caller can refetch the diagram and swap it into the live canvas state
   // immediately instead of waiting for the Ably round trip.
   onRestored?: () => void;
+  // Bumped by the parent on every realtime 'updated' push (ours or anyone
+  // else's) — the Activity tab refetches whenever this changes, instead of
+  // only ever showing what was there when the tab was first opened.
+  activityFeedTick?: number;
 }
 
 // Best-effort human label across every node type's differently-shaped data.
@@ -213,6 +217,7 @@ export function PropertiesPanel({
   onAddCommentReply,
   onDeleteCommentReply,
   onRestored,
+  activityFeedTick,
 }: PropertiesPanelProps) {
   const [activeTab, setActiveTab] = useState<'properties' | 'layers' | 'activity'>('properties');
 
@@ -284,7 +289,7 @@ export function PropertiesPanel({
     return (
       <aside className="w-full h-full bg-white border-l border-slate-200 flex flex-col select-none z-20 shadow-2xs">
         {tabBar}
-        <ActivityLog diagramId={diagramId} onRestored={onRestored} />
+        <ActivityLog diagramId={diagramId} onRestored={onRestored} refreshSignal={activityFeedTick} />
       </aside>
     );
   }
@@ -1934,6 +1939,8 @@ interface AuditEntry {
   action: 'created' | 'updated' | 'deleted';
   timestamp: string;
   description?: string;
+  nodeCount?: number;
+  edgeCount?: number;
   restorable: boolean;
 }
 
@@ -1943,7 +1950,19 @@ const ACTION_LABEL: Record<AuditEntry['action'], string> = {
   deleted: 'deleted this diagram',
 };
 
-function ActivityLog({ diagramId, onRestored }: { diagramId: string; onRestored?: () => void }) {
+function ActivityLog({
+  diagramId,
+  onRestored,
+  refreshSignal,
+}: {
+  diagramId: string;
+  onRestored?: () => void;
+  // Changes on every realtime push for this diagram (see activityFeedTick in
+  // app/flow/[id]/page.tsx) — refetching here is what makes "someone else
+  // just changed this" show up while the tab is open, instead of only ever
+  // reflecting the moment it was first opened.
+  refreshSignal?: number;
+}) {
   // null = not fetched yet; [] = fetched, empty — same trick used elsewhere
   // in this codebase to avoid a separate "loading" flag that would need a
   // synchronous setState call at the top of the effect body.
@@ -1961,7 +1980,8 @@ function ActivityLog({ diagramId, onRestored }: { diagramId: string; onRestored?
 
   useEffect(() => {
     loadActivity();
-  }, [loadActivity]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadActivity, refreshSignal]);
 
   const handleRestore = useCallback(
     (entryId: string) => {
@@ -2013,6 +2033,12 @@ function ActivityLog({ diagramId, onRestored }: { diagramId: string; onRestored?
                   <span className="text-[11px] text-slate-500">
                     {entry.description || ACTION_LABEL[entry.action]} · {formatRelativeTime(entry.timestamp)}
                   </span>
+                  {typeof entry.nodeCount === 'number' && (
+                    <span className="block text-[10px] text-slate-400">
+                      {entry.nodeCount} node{entry.nodeCount === 1 ? '' : 's'}, {entry.edgeCount} connection
+                      {entry.edgeCount === 1 ? '' : 's'} total
+                    </span>
+                  )}
                 </div>
                 {entry.restorable && confirmingId !== entry.id && (
                   <button
