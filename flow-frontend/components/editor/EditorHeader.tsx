@@ -27,6 +27,7 @@ import {
   LogIn,
   LogOut,
   Share2,
+  MessageSquare,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { Diagram, DiagramCategory } from '@/types/diagram';
@@ -63,7 +64,9 @@ interface EditorHeaderProps {
   onExportJSON: () => void;
   onImportJSON: (file: File) => void;
   onOpenAiModal?: () => void;
-  userAccessType?: 'ADMIN' | 'VIEWER' | 'TEMPLATE' | 'GUEST';
+  commentModeActive?: boolean;
+  onToggleCommentMode?: () => void;
+  userAccessType?: 'ADMIN' | 'EDITOR' | 'VIEWER' | 'TEMPLATE' | 'GUEST';
 }
 
 export function EditorHeader({
@@ -265,6 +268,11 @@ export function EditorHeader({
               Admin
             </span>
           )}
+          {userAccessType === 'EDITOR' && (
+            <span className="hidden sm:inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold bg-blue-50 text-blue-700 border border-blue-200/60">
+              Editor
+            </span>
+          )}
           {userAccessType === 'VIEWER' && (
             <span className="hidden sm:inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200/60">
               Viewer
@@ -315,6 +323,18 @@ export function EditorHeader({
         >
           <Maximize2 className="w-4 h-4" />
         </button>
+
+        {user && userAccessType !== 'GUEST' && userAccessType !== 'TEMPLATE' && onToggleCommentMode && (
+          <button
+            onClick={onToggleCommentMode}
+            className={`p-1.5 rounded-lg transition-all ${
+              commentModeActive ? 'bg-blue-600 text-white' : 'text-slate-600 hover:text-slate-900 hover:bg-white'
+            }`}
+            title={commentModeActive ? 'Click the canvas to place a comment (or click here to cancel)' : 'Add a comment'}
+          >
+            <MessageSquare className="w-4 h-4" />
+          </button>
+        )}
 
         {userAccessType !== 'VIEWER' && (
           <>

@@ -63,7 +63,12 @@ interface PropertiesPanelProps {
   onEjectGroupNodes: (groupId: string) => void;
   onDisconnectNodeEdges: (nodeId: string) => void;
   selectedNodes: Node[];
+  selectedEdges: Edge[];
   onBulkSetBgColor: (ids: string[], hex: string | undefined) => void;
+  onBulkUpdateNodeData: (ids: string[], patch: Record<string, any>) => void;
+  onBulkUpdateEdgeData: (ids: string[], patch: Record<string, any>) => void;
+  onBulkMoveEdgeEndpoint: (ids: string[], end: 'source' | 'target', handleId: 'top' | 'bottom' | 'left' | 'right') => void;
+  onBulkDeleteEdges: (ids: string[]) => void;
   onBulkDelete: (ids: string[]) => void;
   onBulkDisconnectEdges: (ids: string[]) => void;
   nodeCount: number;
@@ -165,7 +170,12 @@ export function PropertiesPanel({
   onEjectGroupNodes,
   onDisconnectNodeEdges,
   selectedNodes,
+  selectedEdges,
   onBulkSetBgColor,
+  onBulkUpdateNodeData,
+  onBulkUpdateEdgeData,
+  onBulkMoveEdgeEndpoint,
+  onBulkDeleteEdges,
   onBulkDelete,
   onBulkDisconnectEdges,
   nodeCount,
@@ -268,6 +278,11 @@ export function PropertiesPanel({
             value={undefined}
             onChange={(hex) => onBulkSetBgColor(ids, hex)}
           />
+
+          {/* Every appearance control applies to all selected nodes at
+              once — only per-node content (title, subtitle, status, etc.)
+              doesn't make sense in bulk and stays out of this view. */}
+          <NodeStyleSection data={{}} onChange={(patch) => onBulkUpdateNodeData(ids, patch)} />
 
           <div className="pt-3 border-t border-slate-100 space-y-2">
             <button
@@ -894,159 +909,43 @@ export function PropertiesPanel({
             </div>
           </div>
 
+          <NodeStyleSection data={data} onChange={(patch) => onUpdateNodeData(selectedNode.id, patch)} />
+        </fieldset>
+      </aside>
+    );
+  }
+
+  // Case 1b: Multi-Edge Selection — every appearance control (curve,
+  // animation, line pattern/width/color, arrowheads, move) applies to all
+  // selected edges at once; Connection Label is per-edge content and
+  // deliberately excluded here, same reasoning as node title/subtitle in
+  // the multi-node case above.
+  if (selectedEdges.length > 1) {
+    const edgeIds = selectedEdges.map((e) => e.id);
+    return (
+      <aside className="w-full h-full bg-white border-l border-slate-200 flex flex-col select-none z-20 shadow-2xs">
+        {tabBar}
+        <div className="p-3.5 border-b border-slate-100 flex items-center gap-2">
+          <Sliders className="w-4 h-4 text-blue-600" />
+          <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+            {selectedEdges.length} Connections Selected
+          </h3>
+        </div>
+        <fieldset disabled={readOnly} className={`flex-1 overflow-y-auto p-4 space-y-4 text-xs ${readOnly ? 'opacity-80' : ''}`}>
+          <EdgeStyleSection data={{}} onChange={(patch) => onBulkUpdateEdgeData(edgeIds, patch)} />
+          <MoveEdgeSection
+            idPrefix="bulk-edges"
+            onMove={(end, side) => onBulkMoveEdgeEndpoint(edgeIds, end, side)}
+          />
+
           <div className="pt-3 border-t border-slate-100">
-            <div className="flex items-center gap-1.5 mb-2">
-              <Palette className="w-3.5 h-3.5 text-blue-600" />
-              <label className="font-semibold text-slate-700">Style</label>
-            </div>
-
-            <div className="mb-2.5">
-              <div className="flex items-center justify-between mb-1">
-                <label className="text-[11px] font-medium text-slate-500 flex items-center gap-1">
-                  <Droplet className="w-3 h-3" />
-                  Opacity
-                </label>
-                <span className="text-[11px] font-mono text-slate-500">
-                  {Math.round((data.opacity ?? 1) * 100)}%
-                </span>
-              </div>
-              <input
-                type="range"
-                min={0}
-                max={100}
-                value={Math.round((data.opacity ?? 1) * 100)}
-                onChange={(e) =>
-                  onUpdateNodeData(selectedNode.id, { opacity: Number(e.target.value) / 100 })
-                }
-                className="w-full accent-blue-600 cursor-pointer"
-              />
-            </div>
-
-            <div className="mb-2.5">
-              <label className="text-[11px] font-medium text-slate-500 block mb-1">Text Align</label>
-              <div className="grid grid-cols-3 gap-1.5">
-                {(
-                  [
-                    { id: 'left', label: 'Left', icon: <AlignLeft className="w-3.5 h-3.5" /> },
-                    { id: 'center', label: 'Center', icon: <AlignCenter className="w-3.5 h-3.5" /> },
-                    { id: 'right', label: 'Right', icon: <AlignRight className="w-3.5 h-3.5" /> },
-                  ] as const
-                ).map((align) => (
-                  <button
-                    key={align.id}
-                    onClick={() => onUpdateNodeData(selectedNode.id, { textAlign: align.id })}
-                    className={`flex items-center justify-center py-1.5 rounded-lg border transition-colors cursor-pointer ${
-                      (data.textAlign || 'left') === align.id
-                        ? 'border-blue-500 bg-blue-50 text-blue-700'
-                        : 'border-slate-200 text-slate-500 hover:border-slate-300 hover:bg-slate-50'
-                    }`}
-                    title={align.label}
-                  >
-                    {align.icon}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2 mb-2.5">
-              <div>
-                <label className="text-[11px] font-medium text-slate-500 block mb-1">Border Radius</label>
-                <input
-                  type="number"
-                  min={0}
-                  placeholder="Default"
-                  value={typeof data.borderRadius === 'number' ? data.borderRadius : ''}
-                  onChange={(e) =>
-                    onUpdateNodeData(selectedNode.id, {
-                      borderRadius: e.target.value === '' ? undefined : Number(e.target.value),
-                    })
-                  }
-                  className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:border-blue-500"
-                />
-              </div>
-              <div>
-                <label className="text-[11px] font-medium text-slate-500 block mb-1">Stroke Width</label>
-                <input
-                  type="number"
-                  min={0}
-                  placeholder="Default"
-                  value={typeof data.strokeWidth === 'number' ? data.strokeWidth : ''}
-                  onChange={(e) =>
-                    onUpdateNodeData(selectedNode.id, {
-                      strokeWidth: e.target.value === '' ? undefined : Number(e.target.value),
-                    })
-                  }
-                  className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:border-blue-500"
-                />
-              </div>
-            </div>
-
-            <div className="mb-2.5">
-              <BackgroundColorControl
-                label="Stroke Color"
-                value={data.strokeColor}
-                onChange={(hex) => onUpdateNodeData(selectedNode.id, { strokeColor: hex })}
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-2 mb-2.5">
-              <div>
-                <label className="text-[11px] font-medium text-slate-500 block mb-1">Font Size</label>
-                <input
-                  type="number"
-                  min={8}
-                  placeholder="Default"
-                  value={typeof data.fontSize === 'number' ? data.fontSize : ''}
-                  onChange={(e) =>
-                    onUpdateNodeData(selectedNode.id, {
-                      fontSize: e.target.value === '' ? undefined : Number(e.target.value),
-                    })
-                  }
-                  className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:border-blue-500"
-                />
-              </div>
-              <div>
-                <label className="text-[11px] font-medium text-slate-500 block mb-1">Font Weight</label>
-                <select
-                  value={data.fontWeight || ''}
-                  onChange={(e) =>
-                    onUpdateNodeData(selectedNode.id, { fontWeight: e.target.value || undefined })
-                  }
-                  className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:border-blue-500"
-                >
-                  <option value="">Default</option>
-                  <option value="normal">Normal</option>
-                  <option value="medium">Medium</option>
-                  <option value="semibold">Semibold</option>
-                  <option value="bold">Bold</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="mb-2.5">
-              <BackgroundColorControl
-                label="Font Color"
-                value={data.fontColor}
-                onChange={(hex) => onUpdateNodeData(selectedNode.id, { fontColor: hex })}
-              />
-            </div>
-
-            <div>
-              <label className="text-[11px] font-medium text-slate-500 block mb-1">Font Family</label>
-              <select
-                value={data.fontFamily || ''}
-                onChange={(e) =>
-                  onUpdateNodeData(selectedNode.id, { fontFamily: e.target.value || undefined })
-                }
-                className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:border-blue-500"
-              >
-                <option value="">Default</option>
-                <option value="Inter, system-ui, sans-serif">Sans-serif (Inter)</option>
-                <option value="Georgia, 'Times New Roman', serif">Serif (Georgia)</option>
-                <option value="'JetBrains Mono', 'Courier New', monospace">Monospace</option>
-                <option value="'Comic Sans MS', cursive">Comic Sans</option>
-              </select>
-            </div>
+            <button
+              onClick={() => onBulkDeleteEdges(edgeIds)}
+              className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold bg-red-50 text-red-700 border border-red-200 hover:bg-red-100 transition-colors cursor-pointer"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              Delete {selectedEdges.length} Connections
+            </button>
           </div>
         </fieldset>
       </aside>
@@ -1056,6 +955,8 @@ export function PropertiesPanel({
   // Case 2: Edge Selected
   if (selectedEdge) {
     const edgeData = (selectedEdge.data || {}) as CustomEdgeData;
+    const sourceNode = nodes.find((n) => n.id === selectedEdge.source);
+    const targetNode = nodes.find((n) => n.id === selectedEdge.target);
 
     return (
       <aside className="w-full h-full bg-white border-l border-slate-200 flex flex-col select-none z-20 shadow-2xs">
@@ -1095,117 +996,16 @@ export function PropertiesPanel({
             />
           </div>
 
-          <div>
-            <label className="font-semibold text-slate-700 block mb-1">Path Curve</label>
-            <select
-              value={edgeData.edgeType || 'smoothstep'}
-              onChange={(e) => onUpdateEdgeData(selectedEdge.id, { edgeType: e.target.value })}
-              className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:border-blue-500"
-            >
-              <option value="smoothstep">SmoothStep (Orthogonal right angles)</option>
-              <option value="bezier">Bezier (Smooth curve)</option>
-              <option value="straight">Straight line</option>
-            </select>
-          </div>
+          <EdgeStyleSection data={edgeData} onChange={(patch) => onUpdateEdgeData(selectedEdge.id, patch)} />
 
-          <div className="flex items-center justify-between p-2 rounded-lg bg-slate-50 border border-slate-200">
-            <span className="font-semibold text-slate-700">Animated Flow Pulse</span>
-            <input
-              type="checkbox"
-              checked={edgeData.animated || false}
-              onChange={(e) => onUpdateEdgeData(selectedEdge.id, { animated: e.target.checked })}
-              className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
-            />
-          </div>
-
-          <div>
-            <label className="font-semibold text-slate-700 block mb-1">Line Pattern</label>
-            <select
-              value={edgeData.strokeStyle || 'solid'}
-              onChange={(e) => onUpdateEdgeData(selectedEdge.id, { strokeStyle: e.target.value })}
-              className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:border-blue-500"
-            >
-              <option value="solid">Solid Line</option>
-              <option value="dashed">Dashed (6 4)</option>
-              <option value="dotted">Dotted (2 3)</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="font-semibold text-slate-700 block mb-1.5">Line Color</label>
-            <div className="flex items-center gap-1.5 flex-wrap">
-              {[
-                { hex: '#2563eb', label: 'Blue' },
-                { hex: '#059669', label: 'Green' },
-                { hex: '#d97706', label: 'Amber' },
-                { hex: '#e11d48', label: 'Rose' },
-                { hex: '#7c3aed', label: 'Purple' },
-                { hex: '#475569', label: 'Slate' },
-              ].map((c) => (
-                <button
-                  key={c.hex}
-                  onClick={() => onUpdateEdgeData(selectedEdge.id, { strokeColor: c.hex })}
-                  className={`w-6 h-6 rounded-full border-2 transition-transform ${
-                    edgeData.strokeColor === c.hex ? 'scale-125 ring-2 ring-blue-400' : 'hover:scale-110'
-                  }`}
-                  style={{ backgroundColor: c.hex, borderColor: '#ffffff' }}
-                  title={c.label}
-                />
-              ))}
-            </div>
-          </div>
-
-          <div className="pt-3 border-t border-slate-100">
-            <div className="flex items-center gap-1.5 mb-1">
-              <Move className="w-3.5 h-3.5 text-blue-600" />
-              <label className="font-semibold text-slate-700">Move Edge</label>
-            </div>
-            <p className="text-[11px] text-slate-400 mb-2.5 leading-relaxed">
-              Pick which side of each node this connection attaches to.
-            </p>
-
-            {(['source', 'target'] as const).map((end) => {
-              const nodeId = end === 'source' ? selectedEdge.source : selectedEdge.target;
-              const node = nodes.find((n) => n.id === nodeId);
-              const currentSide = end === 'source' ? selectedEdge.sourceHandle : selectedEdge.targetHandle;
-              const sides: { id: 'top' | 'right' | 'bottom' | 'left'; label: string; icon: React.ReactNode }[] = [
-                { id: 'top', label: 'Top', icon: <ArrowUp className="w-3.5 h-3.5" /> },
-                { id: 'right', label: 'Right', icon: <ArrowRight className="w-3.5 h-3.5" /> },
-                { id: 'bottom', label: 'Bottom', icon: <ArrowDown className="w-3.5 h-3.5" /> },
-                { id: 'left', label: 'Left', icon: <ArrowLeft className="w-3.5 h-3.5" /> },
-              ];
-              return (
-                <fieldset key={end} className="mb-3 last:mb-0">
-                  <legend className="text-[11px] font-semibold text-slate-600 mb-1.5">
-                    {end === 'source' ? 'Start Node' : 'End Node'}
-                    {node && <span className="font-normal text-slate-400"> — {nodeLabel(node)}</span>}
-                  </legend>
-                  <div className="grid grid-cols-4 gap-1.5">
-                    {sides.map((side) => (
-                      <label
-                        key={side.id}
-                        className={`flex flex-col items-center gap-1 py-1.5 rounded-lg border cursor-pointer transition-colors ${
-                          currentSide === side.id
-                            ? 'border-blue-500 bg-blue-50 text-blue-700'
-                            : 'border-slate-200 text-slate-500 hover:border-slate-300 hover:bg-slate-50'
-                        }`}
-                      >
-                        <input
-                          type="radio"
-                          name={`edge-${selectedEdge.id}-${end}`}
-                          className="sr-only"
-                          checked={currentSide === side.id}
-                          onChange={() => onMoveEdgeEndpoint(selectedEdge.id, end, side.id)}
-                        />
-                        {side.icon}
-                        <span className="text-[10px] font-medium">{side.label}</span>
-                      </label>
-                    ))}
-                  </div>
-                </fieldset>
-              );
-            })}
-          </div>
+          <MoveEdgeSection
+            idPrefix={`edge-${selectedEdge.id}`}
+            sourceLabel={sourceNode ? nodeLabel(sourceNode) : undefined}
+            targetLabel={targetNode ? nodeLabel(targetNode) : undefined}
+            currentSourceSide={selectedEdge.sourceHandle as 'top' | 'right' | 'bottom' | 'left' | undefined}
+            currentTargetSide={selectedEdge.targetHandle as 'top' | 'right' | 'bottom' | 'left' | undefined}
+            onMove={(end, side) => onMoveEdgeEndpoint(selectedEdge.id, end, side)}
+          />
         </fieldset>
       </aside>
     );
@@ -1527,6 +1327,358 @@ function BackgroundColorControl({ value, onChange, label }: BackgroundColorContr
           </button>
         )}
       </div>
+    </div>
+  );
+}
+
+interface NodeStyleSectionProps {
+  // For a single selected node, its current data (so controls show real
+  // values). For a multi-selection there's no single "current" value across
+  // possibly-different nodes, so callers pass `{}` — every control then
+  // just shows its "Default" state, and any change is applied to every
+  // selected node identically.
+  data: Record<string, any>;
+  onChange: (patch: Record<string, any>) => void;
+}
+
+// The appearance controls common to every node type (opacity, alignment,
+// border, font) — shared between the single-node editor and the
+// multi-selection bulk editor via the `onChange` indirection, so this
+// doesn't need to know whether it's updating one node or many.
+function NodeStyleSection({ data, onChange }: NodeStyleSectionProps) {
+  return (
+    <div className="pt-3 border-t border-slate-100">
+      <div className="flex items-center gap-1.5 mb-2">
+        <Palette className="w-3.5 h-3.5 text-blue-600" />
+        <label className="font-semibold text-slate-700">Style</label>
+      </div>
+
+      <div className="mb-2.5">
+        <div className="flex items-center justify-between mb-1">
+          <label className="text-[11px] font-medium text-slate-500 flex items-center gap-1">
+            <Droplet className="w-3 h-3" />
+            Opacity
+          </label>
+          <span className="text-[11px] font-mono text-slate-500">
+            {Math.round((data.opacity ?? 1) * 100)}%
+          </span>
+        </div>
+        <input
+          type="range"
+          min={0}
+          max={100}
+          value={Math.round((data.opacity ?? 1) * 100)}
+          onChange={(e) => onChange({ opacity: Number(e.target.value) / 100 })}
+          className="w-full accent-blue-600 cursor-pointer"
+        />
+      </div>
+
+      <div className="mb-2.5">
+        <label className="text-[11px] font-medium text-slate-500 block mb-1">Text Align</label>
+        <div className="grid grid-cols-3 gap-1.5">
+          {(
+            [
+              { id: 'left', label: 'Left', icon: <AlignLeft className="w-3.5 h-3.5" /> },
+              { id: 'center', label: 'Center', icon: <AlignCenter className="w-3.5 h-3.5" /> },
+              { id: 'right', label: 'Right', icon: <AlignRight className="w-3.5 h-3.5" /> },
+            ] as const
+          ).map((align) => (
+            <button
+              key={align.id}
+              onClick={() => onChange({ textAlign: align.id })}
+              className={`flex items-center justify-center py-1.5 rounded-lg border transition-colors cursor-pointer ${
+                (data.textAlign || 'left') === align.id
+                  ? 'border-blue-500 bg-blue-50 text-blue-700'
+                  : 'border-slate-200 text-slate-500 hover:border-slate-300 hover:bg-slate-50'
+              }`}
+              title={align.label}
+            >
+              {align.icon}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 mb-2.5">
+        <div>
+          <label className="text-[11px] font-medium text-slate-500 block mb-1">Border Radius</label>
+          <input
+            type="number"
+            min={0}
+            placeholder="Default"
+            value={typeof data.borderRadius === 'number' ? data.borderRadius : ''}
+            onChange={(e) =>
+              onChange({ borderRadius: e.target.value === '' ? undefined : Number(e.target.value) })
+            }
+            className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:border-blue-500"
+          />
+        </div>
+        <div>
+          <label className="text-[11px] font-medium text-slate-500 block mb-1">Stroke Width</label>
+          <input
+            type="number"
+            min={0}
+            placeholder="Default"
+            value={typeof data.strokeWidth === 'number' ? data.strokeWidth : ''}
+            onChange={(e) =>
+              onChange({ strokeWidth: e.target.value === '' ? undefined : Number(e.target.value) })
+            }
+            className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:border-blue-500"
+          />
+        </div>
+      </div>
+
+      <div className="mb-2.5">
+        <BackgroundColorControl
+          label="Stroke Color"
+          value={data.strokeColor}
+          onChange={(hex) => onChange({ strokeColor: hex })}
+        />
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 mb-2.5">
+        <div>
+          <label className="text-[11px] font-medium text-slate-500 block mb-1">Font Size</label>
+          <input
+            type="number"
+            min={8}
+            placeholder="Default"
+            value={typeof data.fontSize === 'number' ? data.fontSize : ''}
+            onChange={(e) =>
+              onChange({ fontSize: e.target.value === '' ? undefined : Number(e.target.value) })
+            }
+            className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:border-blue-500"
+          />
+        </div>
+        <div>
+          <label className="text-[11px] font-medium text-slate-500 block mb-1">Font Weight</label>
+          <select
+            value={data.fontWeight || ''}
+            onChange={(e) => onChange({ fontWeight: e.target.value || undefined })}
+            className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:border-blue-500"
+          >
+            <option value="">Default</option>
+            <option value="normal">Normal</option>
+            <option value="medium">Medium</option>
+            <option value="semibold">Semibold</option>
+            <option value="bold">Bold</option>
+          </select>
+        </div>
+      </div>
+
+      <div className="mb-2.5">
+        <BackgroundColorControl
+          label="Font Color"
+          value={data.fontColor}
+          onChange={(hex) => onChange({ fontColor: hex })}
+        />
+      </div>
+
+      <div>
+        <label className="text-[11px] font-medium text-slate-500 block mb-1">Font Family</label>
+        <select
+          value={data.fontFamily || ''}
+          onChange={(e) => onChange({ fontFamily: e.target.value || undefined })}
+          className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:border-blue-500"
+        >
+          <option value="">Default</option>
+          <option value="Inter, system-ui, sans-serif">Sans-serif (Inter)</option>
+          <option value="Georgia, 'Times New Roman', serif">Serif (Georgia)</option>
+          <option value="'JetBrains Mono', 'Courier New', monospace">Monospace</option>
+          <option value="'Comic Sans MS', cursive">Comic Sans</option>
+        </select>
+      </div>
+    </div>
+  );
+}
+
+interface EdgeStyleSectionProps {
+  // For a single selected edge, its current data. For a multi-selection
+  // there's no single "current" value across possibly-different edges, so
+  // callers pass `{}` — every control shows its "Default"/unset state, and
+  // any change is applied to every selected edge identically.
+  data: Record<string, any>;
+  onChange: (patch: Record<string, any>) => void;
+}
+
+const LINE_COLOR_SWATCHES = [
+  { hex: '#2563eb', label: 'Blue' },
+  { hex: '#059669', label: 'Green' },
+  { hex: '#d97706', label: 'Amber' },
+  { hex: '#e11d48', label: 'Rose' },
+  { hex: '#7c3aed', label: 'Purple' },
+  { hex: '#475569', label: 'Slate' },
+];
+
+// The appearance controls common to every edge (curve, animation, line
+// pattern/width/color, arrowheads) — shared between the single-edge editor
+// and the multi-selection bulk editor via the `onChange` indirection, same
+// pattern as NodeStyleSection above. Connection Label is deliberately NOT
+// part of this — it's per-edge content, only ever shown for a single
+// selected edge.
+function EdgeStyleSection({ data, onChange }: EdgeStyleSectionProps) {
+  return (
+    <>
+      <div>
+        <label className="font-semibold text-slate-700 block mb-1">Path Curve</label>
+        <select
+          value={data.edgeType || 'smoothstep'}
+          onChange={(e) => onChange({ edgeType: e.target.value })}
+          className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:border-blue-500"
+        >
+          <option value="smoothstep">SmoothStep (Orthogonal right angles)</option>
+          <option value="bezier">Bezier (Smooth curve)</option>
+          <option value="straight">Straight line</option>
+        </select>
+      </div>
+
+      <div className="flex items-center justify-between p-2 rounded-lg bg-slate-50 border border-slate-200">
+        <span className="font-semibold text-slate-700">Animated Flow Pulse</span>
+        <input
+          type="checkbox"
+          checked={data.animated || false}
+          onChange={(e) => onChange({ animated: e.target.checked })}
+          className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+        />
+      </div>
+
+      <div>
+        <label className="font-semibold text-slate-700 block mb-1">Line Pattern</label>
+        <select
+          value={data.strokeStyle || 'solid'}
+          onChange={(e) => onChange({ strokeStyle: e.target.value })}
+          className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:border-blue-500"
+        >
+          <option value="solid">Solid Line</option>
+          <option value="dashed">Dashed (6 4)</option>
+          <option value="dotted">Dotted (2 3)</option>
+        </select>
+      </div>
+
+      <div>
+        <label className="font-semibold text-slate-700 block mb-1">Line Width</label>
+        <input
+          type="number"
+          min={1}
+          placeholder="Default"
+          value={typeof data.strokeWidth === 'number' ? data.strokeWidth : ''}
+          onChange={(e) =>
+            onChange({ strokeWidth: e.target.value === '' ? undefined : Number(e.target.value) })
+          }
+          className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:border-blue-500"
+        />
+      </div>
+
+      <div>
+        <label className="font-semibold text-slate-700 block mb-1.5">Line Color</label>
+        <div className="flex items-center gap-1.5 flex-wrap">
+          {LINE_COLOR_SWATCHES.map((c) => (
+            <button
+              key={c.hex}
+              onClick={() => onChange({ strokeColor: c.hex })}
+              className={`w-6 h-6 rounded-full border-2 transition-transform ${
+                data.strokeColor === c.hex ? 'scale-125 ring-2 ring-blue-400' : 'hover:scale-110'
+              }`}
+              style={{ backgroundColor: c.hex, borderColor: '#ffffff' }}
+              title={c.label}
+            />
+          ))}
+        </div>
+      </div>
+
+      <div>
+        <label className="font-semibold text-slate-700 block mb-1">Line Type</label>
+        <select
+          value={data.lineType || 'none'}
+          onChange={(e) => onChange({ lineType: e.target.value })}
+          className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:border-blue-500"
+        >
+          <option value="none">Simple Line (no arrows)</option>
+          <option value="end">Right Arrow (→ at end)</option>
+          <option value="start">Left Arrow (← at start)</option>
+          <option value="both">Both Arrows (↔)</option>
+        </select>
+      </div>
+    </>
+  );
+}
+
+interface MoveEdgeSectionProps {
+  idPrefix: string;
+  // undefined labels/sides render as generic "Start Node"/"End Node" with no
+  // node name and nothing highlighted — the multi-selection case, where
+  // each selected edge has a different source/target node.
+  sourceLabel?: string;
+  targetLabel?: string;
+  currentSourceSide?: 'top' | 'right' | 'bottom' | 'left';
+  currentTargetSide?: 'top' | 'right' | 'bottom' | 'left';
+  onMove: (end: 'source' | 'target', side: 'top' | 'right' | 'bottom' | 'left') => void;
+}
+
+const EDGE_SIDES: { id: 'top' | 'right' | 'bottom' | 'left'; label: string; icon: React.ReactNode }[] = [
+  { id: 'top', label: 'Top', icon: <ArrowUp className="w-3.5 h-3.5" /> },
+  { id: 'right', label: 'Right', icon: <ArrowRight className="w-3.5 h-3.5" /> },
+  { id: 'bottom', label: 'Bottom', icon: <ArrowDown className="w-3.5 h-3.5" /> },
+  { id: 'left', label: 'Left', icon: <ArrowLeft className="w-3.5 h-3.5" /> },
+];
+
+// Shared "which side of the node does this edge attach to" picker — used by
+// both the single-edge editor (real node names, current side highlighted)
+// and the multi-edge bulk editor (generic labels, nothing highlighted since
+// selected edges may currently differ).
+function MoveEdgeSection({
+  idPrefix,
+  sourceLabel,
+  targetLabel,
+  currentSourceSide,
+  currentTargetSide,
+  onMove,
+}: MoveEdgeSectionProps) {
+  const ends = [
+    { end: 'source' as const, label: 'Start Node', nodeLabel: sourceLabel, current: currentSourceSide },
+    { end: 'target' as const, label: 'End Node', nodeLabel: targetLabel, current: currentTargetSide },
+  ];
+
+  return (
+    <div className="pt-3 border-t border-slate-100">
+      <div className="flex items-center gap-1.5 mb-1">
+        <Move className="w-3.5 h-3.5 text-blue-600" />
+        <label className="font-semibold text-slate-700">Move Edge</label>
+      </div>
+      <p className="text-[11px] text-slate-400 mb-2.5 leading-relaxed">
+        Pick which side of each node this connection attaches to.
+      </p>
+
+      {ends.map(({ end, label, nodeLabel, current }) => (
+        <fieldset key={end} className="mb-3 last:mb-0">
+          <legend className="text-[11px] font-semibold text-slate-600 mb-1.5">
+            {label}
+            {nodeLabel && <span className="font-normal text-slate-400"> — {nodeLabel}</span>}
+          </legend>
+          <div className="grid grid-cols-4 gap-1.5">
+            {EDGE_SIDES.map((side) => (
+              <label
+                key={side.id}
+                className={`flex flex-col items-center gap-1 py-1.5 rounded-lg border cursor-pointer transition-colors ${
+                  current === side.id
+                    ? 'border-blue-500 bg-blue-50 text-blue-700'
+                    : 'border-slate-200 text-slate-500 hover:border-slate-300 hover:bg-slate-50'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name={`${idPrefix}-${end}`}
+                  className="sr-only"
+                  checked={current === side.id}
+                  onChange={() => onMove(end, side.id)}
+                />
+                {side.icon}
+                <span className="text-[10px] font-medium">{side.label}</span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
+      ))}
     </div>
   );
 }

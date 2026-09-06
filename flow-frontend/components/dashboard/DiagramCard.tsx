@@ -98,7 +98,7 @@ export function DiagramCard({
   const nodeCount = diagram.nodes?.length || 0;
   const edgeCount = diagram.edges?.length || 0;
 
-  const userAccess = React.useMemo<'ADMIN' | 'VIEWER' | 'TEMPLATE' | 'GUEST'>(() => {
+  const userAccess = React.useMemo<'ADMIN' | 'EDITOR' | 'VIEWER' | 'TEMPLATE' | 'GUEST'>(() => {
     if (diagram.isTemplate || diagram.id.startsWith('template-')) return 'TEMPLATE';
     if (!currentUserId) return 'GUEST';
     const matched = diagram.users?.find((u) => u.userId === currentUserId);
@@ -108,6 +108,7 @@ export function DiagramCard({
   }, [diagram, currentUserId]);
 
   const isAdmin = userAccess === 'ADMIN';
+  const isEditor = userAccess === 'EDITOR';
   const isViewer = userAccess === 'VIEWER';
 
   if (viewMode === 'list') {
@@ -126,6 +127,11 @@ export function DiagramCard({
               <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${config.badgeBg} ${config.badgeText}`}>
                 {config.label}
               </span>
+              {isEditor && (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                  Editor
+                </span>
+              )}
               {isViewer && (
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
                   Viewer
@@ -212,6 +218,13 @@ export function DiagramCard({
                       <span>Delete</span>
                     </button>
                   </>
+                ) : isEditor ? (
+                  <>
+                    <div className="my-1 border-t border-slate-100 dark:border-slate-700" />
+                    <div className="px-3 py-1 text-[10px] text-blue-600 dark:text-blue-400 font-medium italic">
+                      Editor (can&apos;t delete)
+                    </div>
+                  </>
                 ) : (
                   <>
                     <div className="my-1 border-t border-slate-100 dark:border-slate-700" />
@@ -267,6 +280,11 @@ export function DiagramCard({
               </span>
             )}
 
+            {isEditor && (
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 shadow-2xs">
+                Editor
+              </span>
+            )}
             {isViewer && (
               <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 shadow-2xs">
                 Viewer
@@ -358,6 +376,13 @@ export function DiagramCard({
                           <Trash2 className="w-3.5 h-3.5" />
                           <span>Delete</span>
                         </button>
+                      </>
+                    ) : isEditor ? (
+                      <>
+                        <div className="my-1 border-t border-slate-100 dark:border-slate-700" />
+                        <div className="px-3 py-1 text-[10px] text-blue-600 dark:text-blue-400 font-medium italic">
+                          Editor (can&apos;t delete)
+                        </div>
                       </>
                     ) : (
                       <>

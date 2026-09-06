@@ -11,8 +11,10 @@ import {
   addEdge,
   reconnectEdge,
   ConnectionMode,
+  MarkerType,
   Connection,
   Edge,
+  EdgeMarker,
   Node,
   NodeChange,
   EdgeChange,
@@ -42,7 +44,7 @@ import {
 } from 'lucide-react';
 
 import { useAuth } from '@/context/AuthContext';
-import { Diagram, DiagramCategory } from '@/types/diagram';
+import { Diagram, DiagramCategory, DiagramComment } from '@/types/diagram';
 import {
   getDiagram,
   saveDiagram,
@@ -66,6 +68,7 @@ import { PropertiesPanel } from '@/components/editor/PropertiesPanel';
 import { AiAssistantModal } from '@/components/editor/AiAssistantModal';
 import { AlignmentToolbar } from '@/components/editor/AlignmentToolbar';
 import { CollaboratorCursors } from '@/components/editor/CollaboratorCursors';
+import { CollaboratorSelections } from '@/components/editor/CollaboratorSelections';
 import { AlignmentGuides } from '@/components/editor/AlignmentGuides';
 import { CommandPalette, CommandPaletteAction } from '@/components/editor/CommandPalette';
 
@@ -82,6 +85,26 @@ const edgeTypes = {
   customEdge: CustomEdge,
 };
 
+// Derives an edge's top-level markerStart/markerEnd from its own `data`
+// (lineType + strokeColor) rather than letting them be set independently —
+// React Flow builds its <marker> SVG defs by scanning every edge's
+// top-level marker fields, so these can't live purely inside CustomEdge's
+// own render; they have to be recomputed here whenever lineType or
+// strokeColor changes, and kept in sync with whatever color the line
+// itself is using (matching CustomEdge's own default when unset).
+function computeEdgeMarkers(data: Record<string, any>): {
+  markerStart: EdgeMarker | undefined;
+  markerEnd: EdgeMarker | undefined;
+} {
+  const color = data.strokeColor || '#94a3b8';
+  const marker: EdgeMarker = { type: MarkerType.ArrowClosed, color, width: 18, height: 18 };
+  const lineType = data.lineType || 'none';
+  return {
+    markerStart: lineType === 'start' || lineType === 'both' ? marker : undefined,
+    markerEnd: lineType === 'end' || lineType === 'both' ? marker : undefined,
+  };
+}
+
 function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
   const router = useRouter();
   const reactFlowInstance = useReactFlow();
@@ -91,13 +114,21 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
   const [diagram, setDiagram] = useState<Diagram>(initialDiagram);
   const [nodes, setNodes, onNodesChange] = useNodesState(initialDiagram.nodes || []);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialDiagram.edges || []);
+  // Comments are a canvas overlay independent of the node/edge graph — no
+  // React Flow node type, never counted in node/edge CRUD, never selectable
+  // alongside a node/edge — so plain state is enough, no useNodesState-style
+  // change-tracking needed.
+  const [comments, setComments] = useState<DiagramComment[]>(initialDiagram.comments || []);
+  const [selectedComment, setSelectedComment] = useState<DiagramComment | null>(null);
+  const [commentModeActive, setCommentModeActive] = useState(false);
 
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
   const [selectedEdge, setSelectedEdge] = useState<Edge | null>(null);
   // Full multi-selection, for the alignment toolbar and bulk actions.
-  // selectedNode above stays "the first selected node" for the single-node
-  // Properties view — this is additive, not a replacement.
+  // selectedNode/selectedEdge above stay "the first selected" for the
+  // single-item Properties view — these are additive, not a replacement.
   const [selectedNodes, setSelectedNodes] = useState<Node[]>([]);
+  const [selectedEdges, setSelectedEdges] = useState<Edge[]>([]);
 
   const [isSaving, setIsSaving] = useState(false);
   const [gridType, setGridType] = useState<'dots' | 'lines' | 'cross' | 'none'>(
@@ -166,24 +197,40 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
 
   const isTemplate = diagram.isTemplate || diagram.id.startsWith('template-');
 
-  // Access permissions: exactly 1 ADMIN can edit or delete, VIEWERS are read-only
+  // Access permissions: exactly 1 ADMIN owns the diagram (can delete it and
+  // manage sharing); any number of EDITORs can edit content alongside the
+  // ADMIN but can't do either of those two things; VIEWERS are read-only.
   const isAdmin =
     !isTemplate &&
     !!user &&
     (diagram.userId === user.id ||
       diagram.users?.some((u) => u.userId === user.id && u.accesstype === 'ADMIN') ||
       !diagram.userId);
+  const isEditor =
+    !isTemplate &&
+    !isAdmin &&
+    !!user &&
+    !!diagram.users?.some((u) => u.userId === user.id && u.accesstype === 'EDITOR');
   // A public diagram is viewable read-only by anyone — signed in or not —
-  // so this intentionally does NOT require `user` the way isAdmin does.
+  // so this intentionally does NOT require `user` the way isAdmin/isEditor do.
   const isViewer =
     !isTemplate &&
     !isAdmin &&
+    !isEditor &&
     (diagram.isPublic === true ||
       (!!user && !!diagram.users?.some((u) => u.userId === user.id && u.accesstype === 'VIEWER')));
-  const userAccess: 'ADMIN' | 'VIEWER' | 'TEMPLATE' | 'GUEST' = isTemplate
+  // The single flag almost every editing gate below actually cares about:
+  // "can this person change nodes/edges/canvas settings" — true for both
+  // ADMIN and EDITOR. `isAdmin` itself stays reserved for the couple of
+  // truly owner-only actions (Share button, diagram delete) that live
+  // outside this file.
+  const canEdit = isAdmin || isEditor;
+  const userAccess: 'ADMIN' | 'EDITOR' | 'VIEWER' | 'TEMPLATE' | 'GUEST' = isTemplate
     ? 'TEMPLATE'
     : isAdmin
     ? 'ADMIN'
+    : isEditor
+    ? 'EDITOR'
     : isViewer
     ? 'VIEWER'
     : 'GUEST';
@@ -243,7 +290,7 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
   // the manual "Save this version" button — both must save identically
   // (same payload, same conflict handling), the button just skips the wait.
   const performSave = useCallback(() => {
-    if (isTemplate || !isAdmin) return;
+    if (isTemplate || !canEdit) return;
     if (!isDirtyRef.current) return;
     setIsSaving(true);
     saveInFlightRef.current = true;
@@ -251,6 +298,7 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
       ...diagram,
       nodes,
       edges,
+      comments,
       settings: {
         ...diagram.settings,
         gridType,
@@ -273,13 +321,13 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
         setConflictDiagramState(result.latest);
       }
     });
-  }, [isTemplate, isAdmin, diagram, nodes, edges, gridType, gridGap, gridSize, defaultEdgeType, user?.id]);
+  }, [isTemplate, canEdit, diagram, nodes, edges, comments, gridType, gridGap, gridSize, defaultEdgeType, user?.id]);
 
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Debounced autosave (ADMIN only)
   useEffect(() => {
-    if (isTemplate || !isAdmin) {
+    if (isTemplate || !canEdit) {
       setIsSaving(false);
       return;
     }
@@ -296,7 +344,7 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
     return () => {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     };
-  }, [nodes, edges, diagram, gridType, gridGap, gridSize, defaultEdgeType, user?.id, isAdmin, isTemplate, performSave]);
+  }, [nodes, edges, comments, diagram, gridType, gridGap, gridSize, defaultEdgeType, user?.id, canEdit, isTemplate, performSave]);
 
   // Manual "Save this version" button: cancel any pending debounced save
   // (so we don't double-save moments later) and save right now instead of
@@ -329,8 +377,10 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
       setFuture([]);
       setSelectedNode(null);
       setSelectedEdge(null);
+      setSelectedComment(null);
       setNodes(next.nodes || []);
       setEdges(next.edges || []);
+      setComments(next.comments || []);
       setGridType(next.settings?.gridType || 'dots');
       setGridGap(next.settings?.gridGap || 20);
       setGridSize(next.settings?.gridSize || 1.2);
@@ -352,17 +402,24 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
     diagramUpdatedAtRef.current = diagram.updatedAt;
   }, [diagram.id, diagram.updatedAt]);
 
-  // Presence: who else has this diagram open, and where their cursor is.
-  // Keyed by Ably clientId, which we set to our own userId — see
-  // /api/ably-token. Excludes ourselves.
-  const [collaborators, setCollaborators] = useState<Record<string, { name: string; x?: number; y?: number }>>(
-    {}
-  );
+  // Presence: who else has this diagram open, where their cursor is, and
+  // what node/edge (if any) they currently have selected. Keyed by Ably
+  // clientId, which we set to our own userId — see /api/ably-token.
+  // Excludes ourselves.
+  const [collaborators, setCollaborators] = useState<
+    Record<string, { name: string; x?: number; y?: number; selectedId?: string | null; selectedType?: 'node' | 'edge' | null }>
+  >({});
   const channelRef = useRef<Ably.RealtimeChannel | null>(null);
   const lastCursorSentRef = useRef(0);
+  // Presence.update() replaces the whole data object, not just the fields
+  // you pass — so every call (cursor move, selection change) needs to carry
+  // the last known cursor position forward, or a selection-only update
+  // would blank the cursor from everyone else's view until the next
+  // mousemove.
+  const lastCursorPosRef = useRef({ x: 0, y: 0 });
 
   useEffect(() => {
-    if (isTemplate || !isAdmin) return;
+    if (isTemplate || !canEdit) return;
 
     let realtime: Ably.Realtime | null = null;
     let cancelled = false;
@@ -400,13 +457,18 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
         try {
           const members = await channel.presence.get();
           if (cancelled) return;
-          const next: Record<string, { name: string; x?: number; y?: number }> = {};
+          const next: Record<
+            string,
+            { name: string; x?: number; y?: number; selectedId?: string | null; selectedType?: 'node' | 'edge' | null }
+          > = {};
           members.forEach((m) => {
             if (m.clientId === user?.id) return; // exclude ourselves
             next[m.clientId as string] = {
               name: (m.data?.name as string) || 'Someone',
               x: m.data?.x,
               y: m.data?.y,
+              selectedId: m.data?.selectedId ?? null,
+              selectedType: m.data?.selectedType ?? null,
             };
           });
           setCollaborators(next);
@@ -442,7 +504,7 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
       setCollaborators({});
       realtime?.close();
     };
-  }, [diagram.id, isAdmin, isTemplate, adoptDiagram, user?.id, user?.name]);
+  }, [diagram.id, canEdit, isTemplate, adoptDiagram, user?.id, user?.name]);
 
   // Broadcasts our cursor position (in flow coordinates, so it stays
   // correctly placed for viewers at a different zoom/pan) to anyone else
@@ -455,9 +517,27 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
       if (now - lastCursorSentRef.current < 80) return;
       lastCursorSentRef.current = now;
       const flowPos = reactFlowInstance.screenToFlowPosition({ x: e.clientX, y: e.clientY });
+      lastCursorPosRef.current = flowPos;
       channelRef.current.presence.update({ name: user?.name || 'Someone', x: flowPos.x, y: flowPos.y });
     },
     [reactFlowInstance, user?.name]
+  );
+
+  // Broadcasts what we currently have selected (or null to clear it) so
+  // everyone else can render our outline/badge and get bounced with a toast
+  // if they try to select the same thing — see the lock effect below.
+  const broadcastSelection = useCallback(
+    (selectedId: string | null, selectedType: 'node' | 'edge' | null) => {
+      if (!channelRef.current) return;
+      channelRef.current.presence.update({
+        name: user?.name || 'Someone',
+        x: lastCursorPosRef.current.x,
+        y: lastCursorPosRef.current.y,
+        selectedId,
+        selectedType,
+      });
+    },
+    [user?.name]
   );
 
   const handleReloadLatest = useCallback(() => {
@@ -473,7 +553,7 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
         openLoginModal();
         return;
       }
-      if (!isAdmin) {
+      if (!canEdit) {
         setToastMessage('Viewer access is read-only. Duplicate this flow to make changes.');
         setTimeout(() => setToastMessage(null), 3000);
         return;
@@ -509,7 +589,7 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
       recordHistory(nodes, edges);
       setEdges((eds) => addEdge(newEdge, eds));
     },
-    [user, isAdmin, openLoginModal, nodes, edges, defaultEdgeType, recordHistory, setEdges]
+    [user, canEdit, openLoginModal, nodes, edges, defaultEdgeType, recordHistory, setEdges]
   );
 
   // Dragging an existing edge's endpoint onto a different handle (same node,
@@ -519,7 +599,7 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
   // `onReconnect` are wired up — same guards as onConnect above.
   const onReconnect = useCallback(
     (oldEdge: Edge, newConnection: Connection) => {
-      if (!isAdmin) return;
+      if (!canEdit) return;
       if (newConnection.source === newConnection.target) {
         setToastMessage('A node can’t connect to itself.');
         setTimeout(() => setToastMessage(null), 3000);
@@ -541,23 +621,63 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
       recordHistory(nodes, edges);
       setEdges((eds) => reconnectEdge(oldEdge, newConnection, eds));
     },
-    [isAdmin, nodes, edges, recordHistory, setEdges]
+    [canEdit, nodes, edges, recordHistory, setEdges]
   );
 
   // Selection change
-  const onSelectionChange = useCallback((params: OnSelectionChangeParams) => {
-    setSelectedNodes(params.nodes || []);
-    if (params.nodes && params.nodes.length > 0) {
-      setSelectedNode(params.nodes[0]);
-      setSelectedEdge(null);
-    } else if (params.edges && params.edges.length > 0) {
-      setSelectedEdge(params.edges[0]);
-      setSelectedNode(null);
-    } else {
-      setSelectedNode(null);
-      setSelectedEdge(null);
-    }
-  }, []);
+  const onSelectionChange = useCallback(
+    (params: OnSelectionChangeParams) => {
+      setSelectedNodes(params.nodes || []);
+      setSelectedEdges(params.edges || []);
+      // Presence only has room for one "currently selected" slot per person
+      // (see broadcastSelection) — a multi-selection broadcasts as "nothing
+      // selected" rather than picking one arbitrary item to lock for others.
+      const isSingleSelection =
+        (params.nodes?.length || 0) + (params.edges?.length || 0) === 1;
+      if (params.nodes && params.nodes.length > 0) {
+        setSelectedNode(params.nodes[0]);
+        setSelectedEdge(null);
+        setSelectedComment(null);
+        broadcastSelection(isSingleSelection ? params.nodes[0].id : null, isSingleSelection ? 'node' : null);
+      } else if (params.edges && params.edges.length > 0) {
+        setSelectedEdge(params.edges[0]);
+        setSelectedNode(null);
+        setSelectedComment(null);
+        broadcastSelection(isSingleSelection ? params.edges[0].id : null, isSingleSelection ? 'edge' : null);
+      } else {
+        setSelectedNode(null);
+        setSelectedEdge(null);
+        broadcastSelection(null, null);
+      }
+    },
+    [broadcastSelection]
+  );
+
+  // Soft real-time lock: if what we just selected is already someone else's
+  // current selection (per their broadcast presence data), release our own
+  // selection immediately and say whose it is, instead of letting two
+  // people edit the same node/edge at once. Reacts to `collaborators`
+  // changing too, so this also catches the case where someone else selects
+  // the thing we already have open.
+  useEffect(() => {
+    const lockedId = selectedNode?.id || selectedEdge?.id;
+    if (!lockedId) return;
+    const lockedType: 'node' | 'edge' = selectedNode ? 'node' : 'edge';
+    const lockedBy = Object.values(collaborators).find(
+      (c) => c.selectedId === lockedId && c.selectedType === lockedType
+    );
+    if (!lockedBy) return;
+
+    setSelectedNode(null);
+    setSelectedEdge(null);
+    broadcastSelection(null, null);
+    setToastMessage(`${lockedBy.name} has selected this ${lockedType}.`);
+    setTimeout(() => setToastMessage(null), 3000);
+    // Only the identity of what's selected (and the presence data that
+    // might contest it) should re-run this — not every reference change to
+    // the objects themselves.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedNode?.id, selectedEdge?.id, collaborators]);
 
   // Selecting a row in the Layers panel: mirror the same selection state a
   // canvas click would produce (so the Properties tab reflects it too),
@@ -609,7 +729,7 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
         openLoginModal();
         return;
       }
-      if (!isAdmin) {
+      if (!canEdit) {
         setToastMessage('Viewer access is read-only. Duplicate this flow to make changes.');
         setTimeout(() => setToastMessage(null), 3000);
         return;
@@ -637,7 +757,7 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
         console.error('Error dropping node:', err);
       }
     },
-    [user, isAdmin, openLoginModal, nodes, edges, reactFlowInstance, recordHistory, setNodes]
+    [user, canEdit, openLoginModal, nodes, edges, reactFlowInstance, recordHistory, setNodes]
   );
 
   // One-click Add Node from Sidebar
@@ -646,7 +766,7 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
       if (!user) {
         return;
       }
-      if (!isAdmin) {
+      if (!canEdit) {
         setToastMessage('Viewer access is read-only. Duplicate this flow to make changes.');
         setTimeout(() => setToastMessage(null), 3000);
         return;
@@ -671,13 +791,13 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
       recordHistory(nodes, edges);
       setNodes((nds) => [...nds, newNode]);
     },
-    [user, isAdmin, openLoginModal, nodes, edges, reactFlowInstance, recordHistory, setNodes]
+    [user, canEdit, openLoginModal, nodes, edges, reactFlowInstance, recordHistory, setNodes]
   );
 
   // Update Node Data (Admin only)
   const handleUpdateNodeData = useCallback(
     (nodeId: string, newData: Record<string, any>) => {
-      if (!isAdmin) return;
+      if (!canEdit) return;
       isDirtyRef.current = true;
       setNodes((nds) =>
         nds.map((node) => {
@@ -693,7 +813,7 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
         })
       );
     },
-    [isAdmin, setNodes]
+    [canEdit, setNodes]
   );
 
   // Update a node's geometry (size/position) from the Properties panel's
@@ -702,7 +822,7 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
   // field onUpdateNodeData touches, hence a separate handler.
   const handleUpdateNodeGeometry = useCallback(
     (nodeId: string, geometry: { width?: number; height?: number; x?: number; y?: number }) => {
-      if (!isAdmin) return;
+      if (!canEdit) return;
       isDirtyRef.current = true;
       setNodes((nds) =>
         nds.map((node) => {
@@ -721,21 +841,19 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
         })
       );
     },
-    [isAdmin, setNodes]
+    [canEdit, setNodes]
   );
 
   // Update Edge Data (Admin only)
   const handleUpdateEdgeData = useCallback(
     (edgeId: string, newData: Record<string, any>) => {
-      if (!isAdmin) return;
+      if (!canEdit) return;
       isDirtyRef.current = true;
       setEdges((eds) =>
         eds.map((edge) => {
           if (edge.id === edgeId) {
-            const updated = {
-              ...edge,
-              data: { ...edge.data, ...newData },
-            };
+            const mergedData = { ...edge.data, ...newData };
+            const updated = { ...edge, data: mergedData, ...computeEdgeMarkers(mergedData) };
             setSelectedEdge(updated);
             return updated;
           }
@@ -743,7 +861,28 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
         })
       );
     },
-    [isAdmin, setEdges]
+    [canEdit, setEdges]
+  );
+
+  // Bulk edge style edit — Path Curve, Animated, Line Pattern/Width/Color,
+  // Line Type — applied to every selected edge at once. Connection Label is
+  // deliberately never routed through here: it's per-edge content, edited
+  // only in the single-edge view, same reasoning as node title/subtitle.
+  const handleBulkUpdateEdgeData = useCallback(
+    (ids: string[], patch: Record<string, any>) => {
+      if (!canEdit || ids.length === 0) return;
+      const idSet = new Set(ids);
+      recordHistory(nodes, edges);
+      setEdges((eds) =>
+        eds.map((e) => {
+          if (!idSet.has(e.id)) return e;
+          const mergedData = { ...e.data, ...patch };
+          return { ...e, data: mergedData, ...computeEdgeMarkers(mergedData) };
+        })
+      );
+      isDirtyRef.current = true;
+    },
+    [canEdit, nodes, edges, recordHistory, setEdges]
   );
 
   // Move one end of an edge to a different side of the SAME node it's
@@ -754,7 +893,7 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
   // edge is anchored to.
   const handleMoveEdgeEndpoint = useCallback(
     (edgeId: string, end: 'source' | 'target', handleId: 'top' | 'bottom' | 'left' | 'right') => {
-      if (!isAdmin) return;
+      if (!canEdit) return;
       const edge = edges.find((e) => e.id === edgeId);
       if (!edge) return;
 
@@ -787,13 +926,58 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
         })
       );
     },
-    [isAdmin, nodes, edges, recordHistory, setEdges]
+    [canEdit, nodes, edges, recordHistory, setEdges]
+  );
+
+  // Bulk version of handleMoveEdgeEndpoint: applies the same side to the
+  // chosen endpoint (source or target) of every selected edge, each
+  // relative to its own connected node — coherent even though the edges
+  // connect entirely different node pairs. Edges that would land on a
+  // duplicate connection are skipped individually rather than aborting the
+  // whole batch, since one collision shouldn't block the rest.
+  const handleBulkMoveEdgeEndpoint = useCallback(
+    (ids: string[], end: 'source' | 'target', handleId: 'top' | 'bottom' | 'left' | 'right') => {
+      if (!canEdit || ids.length === 0) return;
+      const idSet = new Set(ids);
+      recordHistory(nodes, edges);
+      let skipped = 0;
+      setEdges((eds) => {
+        const next = eds.map((e) => {
+          if (!idSet.has(e.id)) return e;
+          const nextSourceHandle = end === 'source' ? handleId : e.sourceHandle;
+          const nextTargetHandle = end === 'target' ? handleId : e.targetHandle;
+          if (nextSourceHandle === e.sourceHandle && nextTargetHandle === e.targetHandle) return e;
+          const isDuplicate = eds.some(
+            (other) =>
+              other.id !== e.id &&
+              other.source === e.source &&
+              other.target === e.target &&
+              (other.sourceHandle || null) === (nextSourceHandle || null) &&
+              (other.targetHandle || null) === (nextTargetHandle || null)
+          );
+          if (isDuplicate) {
+            skipped += 1;
+            return e;
+          }
+          return { ...e, sourceHandle: nextSourceHandle, targetHandle: nextTargetHandle };
+        });
+        return next;
+      });
+      isDirtyRef.current = true;
+      if (skipped > 0) {
+        setToastMessage(
+          `${skipped} connection${skipped > 1 ? 's' : ''} skipped — would duplicate an existing connection.`
+        );
+        setTimeout(() => setToastMessage(null), 3000);
+      }
+    },
+    [canEdit, nodes, edges, recordHistory, setEdges]
   );
 
   // Duplicate Node (Admin only)
   const handleDuplicateNode = useCallback(
     (nodeId: string) => {
-      if (!isAdmin) return;
+      if (!canEdit) return;
       const nodeToCopy = nodes.find((n) => n.id === nodeId);
       if (!nodeToCopy) return;
 
@@ -814,30 +998,121 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
       ]);
       setSelectedNode(duplicated);
     },
-    [isAdmin, nodes, edges, recordHistory, setNodes]
+    [canEdit, nodes, edges, recordHistory, setNodes]
   );
 
   // Delete Node (Admin only)
   const handleDeleteNode = useCallback(
     (nodeId: string) => {
-      if (!isAdmin) return;
+      if (!canEdit) return;
       recordHistory(nodes, edges);
       setNodes((nds) => nds.filter((n) => n.id !== nodeId));
       setEdges((eds) => eds.filter((e) => e.source !== nodeId && e.target !== nodeId));
       setSelectedNode(null);
     },
-    [isAdmin, nodes, edges, recordHistory, setNodes, setEdges]
+    [canEdit, nodes, edges, recordHistory, setNodes, setEdges]
   );
 
   // Delete Edge (Admin only)
   const handleDeleteEdge = useCallback(
     (edgeId: string) => {
-      if (!isAdmin) return;
+      if (!canEdit) return;
       recordHistory(nodes, edges);
       setEdges((eds) => eds.filter((e) => e.id !== edgeId));
       setSelectedEdge(null);
     },
-    [isAdmin, nodes, edges, recordHistory, setEdges]
+    [canEdit, nodes, edges, recordHistory, setEdges]
+  );
+
+  // Delete every selected edge by its own id (as opposed to
+  // handleBulkDisconnectEdges, which deletes edges touching a set of
+  // selected NODES) — the multi-edge selection's own "Delete N Connections"
+  // action.
+  const handleBulkDeleteEdges = useCallback(
+    (ids: string[]) => {
+      if (!canEdit || ids.length === 0) return;
+      const idSet = new Set(ids);
+      recordHistory(nodes, edges);
+      setEdges((eds) => eds.filter((e) => !idSet.has(e.id)));
+      setSelectedEdge(null);
+      setSelectedEdges([]);
+    },
+    [canEdit, nodes, edges, recordHistory, setEdges]
+  );
+
+  // Comments are a lighter-weight permission than full editing — anyone
+  // signed in who can at least view this diagram can leave one, same as
+  // most collaborative tools let viewers comment without edit rights.
+  // Editing an existing comment's text/style, though, is author-only (see
+  // handleUpdateComment); deleting one is author-or-ADMIN (moderation).
+  const canComment = !isTemplate && !!user;
+
+  const handleAddComment = useCallback(
+    (x: number, y: number) => {
+      if (!canComment || !user) return;
+      const comment: DiagramComment = {
+        id: `comment_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        x,
+        y,
+        text: '',
+        authorId: user.id,
+        authorName: user.name,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      isDirtyRef.current = true;
+      setComments((prev) => [...prev, comment]);
+      setSelectedNode(null);
+      setSelectedEdge(null);
+      setSelectedComment(comment);
+      setCommentModeActive(false);
+    },
+    [canComment, user]
+  );
+
+  // Armed by the "Add Comment" toolbar toggle — the next click on the
+  // canvas pane (not a node/edge, which have their own click handling)
+  // drops a comment there and disarms itself, mirroring the one-shot
+  // placement pattern most comment tools use instead of a persistent mode
+  // toggle you have to remember to turn off.
+  const handlePaneClick = useCallback(
+    (event: React.MouseEvent) => {
+      if (!commentModeActive) return;
+      const flowPos = reactFlowInstance.screenToFlowPosition({ x: event.clientX, y: event.clientY });
+      handleAddComment(flowPos.x, flowPos.y);
+    },
+    [commentModeActive, reactFlowInstance, handleAddComment]
+  );
+
+  const handleUpdateComment = useCallback(
+    (id: string, patch: Partial<Pick<DiagramComment, 'text' | 'bgColor' | 'borderColor'>>) => {
+      if (!user) return;
+      isDirtyRef.current = true;
+      setComments((prev) =>
+        prev.map((c) => {
+          // Author-only — not even the diagram ADMIN can edit someone
+          // else's comment text, only delete it (moderation, below).
+          if (c.id !== id || c.authorId !== user.id) return c;
+          const updated = { ...c, ...patch, updatedAt: new Date().toISOString() };
+          setSelectedComment(updated);
+          return updated;
+        })
+      );
+    },
+    [user]
+  );
+
+  const handleDeleteComment = useCallback(
+    (id: string) => {
+      if (!user) return;
+      const comment = comments.find((c) => c.id === id);
+      if (!comment) return;
+      if (comment.authorId !== user.id && !isAdmin) return;
+      isDirtyRef.current = true;
+      setComments((prev) => prev.filter((c) => c.id !== id));
+      setSelectedComment(null);
+    },
+    [user, comments, isAdmin]
   );
 
   // Disconnect every edge touching a node (either as source or target),
@@ -846,7 +1121,7 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
   // be manually dragged and reconnected elsewhere without deleting it.
   const handleDisconnectNodeEdges = useCallback(
     (nodeId: string) => {
-      if (!isAdmin) return;
+      if (!canEdit) return;
       const touching = edges.filter((e) => e.source === nodeId || e.target === nodeId);
       if (touching.length === 0) {
         setToastMessage('This node has no connections to disconnect.');
@@ -860,7 +1135,7 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
       );
       setTimeout(() => setToastMessage(null), 2500);
     },
-    [isAdmin, nodes, edges, recordHistory, setEdges]
+    [canEdit, nodes, edges, recordHistory, setEdges]
   );
 
   // Bulk actions for a multi-selection — each is a single history entry and
@@ -868,7 +1143,7 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
   // would otherwise push N separate undo steps for one user action).
   const handleBulkSetBgColor = useCallback(
     (ids: string[], hex: string | undefined) => {
-      if (!isAdmin || ids.length === 0) return;
+      if (!canEdit || ids.length === 0) return;
       const idSet = new Set(ids);
       recordHistory(nodes, edges);
       setNodes((nds) =>
@@ -876,12 +1151,29 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
       );
       isDirtyRef.current = true;
     },
-    [isAdmin, nodes, edges, recordHistory, setNodes]
+    [canEdit, nodes, edges, recordHistory, setNodes]
+  );
+
+  // Bulk style edit — everything in the Properties panel's shared "Style"
+  // section (opacity, alignment, border, font) applied to every selected
+  // node at once, same single-history/single-update shape as
+  // handleBulkSetBgColor above.
+  const handleBulkUpdateNodeData = useCallback(
+    (ids: string[], patch: Record<string, any>) => {
+      if (!canEdit || ids.length === 0) return;
+      const idSet = new Set(ids);
+      recordHistory(nodes, edges);
+      setNodes((nds) =>
+        nds.map((n) => (idSet.has(n.id) ? { ...n, data: { ...n.data, ...patch } } : n))
+      );
+      isDirtyRef.current = true;
+    },
+    [canEdit, nodes, edges, recordHistory, setNodes]
   );
 
   const handleBulkDelete = useCallback(
     (ids: string[]) => {
-      if (!isAdmin || ids.length === 0) return;
+      if (!canEdit || ids.length === 0) return;
       const idSet = new Set(ids);
       recordHistory(nodes, edges);
       setNodes((nds) => nds.filter((n) => !idSet.has(n.id)));
@@ -889,12 +1181,12 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
       setSelectedNode(null);
       setSelectedNodes([]);
     },
-    [isAdmin, nodes, edges, recordHistory, setNodes, setEdges]
+    [canEdit, nodes, edges, recordHistory, setNodes, setEdges]
   );
 
   const handleBulkDisconnectEdges = useCallback(
     (ids: string[]) => {
-      if (!isAdmin || ids.length === 0) return;
+      if (!canEdit || ids.length === 0) return;
       const idSet = new Set(ids);
       const touching = edges.filter((e) => idSet.has(e.source) || idSet.has(e.target));
       if (touching.length === 0) {
@@ -909,11 +1201,11 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
       );
       setTimeout(() => setToastMessage(null), 2500);
     },
-    [isAdmin, nodes, edges, recordHistory, setEdges]
+    [canEdit, nodes, edges, recordHistory, setEdges]
   );
 
   const handleUndo = useCallback(() => {
-    if (!isAdmin) return;
+    if (!canEdit) return;
     if (history.length === 0) return;
     const previous = history[history.length - 1];
     setFuture((f) => [{ nodes, edges }, ...f]);
@@ -924,10 +1216,10 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
     setEdges(previous.edges);
     setSelectedNode(null);
     setSelectedEdge(null);
-  }, [isAdmin, history, nodes, edges, setNodes, setEdges]);
+  }, [canEdit, history, nodes, edges, setNodes, setEdges]);
 
   const handleRedo = useCallback(() => {
-    if (!isAdmin) return;
+    if (!canEdit) return;
     if (future.length === 0) return;
     const next = future[0];
     isUndoRedoAction.current = true;
@@ -938,7 +1230,7 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
     setEdges(next.edges);
     setSelectedNode(null);
     setSelectedEdge(null);
-  }, [isAdmin, future, nodes, edges, setNodes, setEdges]);
+  }, [canEdit, future, nodes, edges, setNodes, setEdges]);
 
   // Copy/paste, backed by localStorage rather than component state — this
   // is what makes it work *across* diagrams (copy in one tab, open a
@@ -963,7 +1255,7 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
   }, [selectedNodes, edges]);
 
   const handlePasteClipboard = useCallback(() => {
-    if (!isAdmin) return;
+    if (!canEdit) return;
     let raw: string | null = null;
     try {
       raw = localStorage.getItem(CLIPBOARD_KEY);
@@ -1009,11 +1301,11 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
     setSelectedNode(newNodes[0] || null);
     setToastMessage(`Pasted ${newNodes.length} node${newNodes.length > 1 ? 's' : ''}.`);
     setTimeout(() => setToastMessage(null), 2000);
-  }, [isAdmin, nodes, edges, recordHistory, setNodes, setEdges]);
+  }, [canEdit, nodes, edges, recordHistory, setNodes, setEdges]);
 
   // Keyboard Shortcuts (Admin only)
   useEffect(() => {
-    if (!isAdmin) return;
+    if (!canEdit) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
       // Don't trigger if user is typing in an input or textarea
@@ -1056,7 +1348,7 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [
-    isAdmin,
+    canEdit,
     handleUndo,
     handleRedo,
     selectedNode,
@@ -1071,7 +1363,7 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
 
   // Auto Layout (Admin only)
   const handleAutoLayout = useCallback(() => {
-    if (!isAdmin) {
+    if (!canEdit) {
       setToastMessage('Viewer access is read-only.');
       setTimeout(() => setToastMessage(null), 3000);
       return;
@@ -1082,7 +1374,7 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
     setTimeout(() => {
       reactFlowInstance.fitView({ padding: 0.2, duration: 400 });
     }, 50);
-  }, [isAdmin, nodes, edges, recordHistory, setNodes, reactFlowInstance]);
+  }, [canEdit, nodes, edges, recordHistory, setNodes, reactFlowInstance]);
 
   // Eject every node currently sitting inside a Group/Container box out to a
   // free row underneath it, so they can be individually dragged elsewhere.
@@ -1135,7 +1427,7 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
 
   const onNodeDrag = useCallback(
     (_event: MouseEvent | TouchEvent, draggedNode: Node) => {
-      if (!isAdmin) return;
+      if (!canEdit) return;
       const bounds = getNodeBounds(draggedNode);
       const others = nodes.filter((n) => n.id !== draggedNode.id);
 
@@ -1176,7 +1468,7 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
         );
       }
     },
-    [isAdmin, nodes, getNodeBounds, setNodes]
+    [canEdit, nodes, getNodeBounds, setNodes]
   );
 
   const onNodeDragStop = useCallback(() => {
@@ -1185,7 +1477,7 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
 
   const handleAlign = useCallback(
     (mode: 'left' | 'hcenter' | 'right' | 'top' | 'vcenter' | 'bottom') => {
-      if (!isAdmin || selectedNodes.length < 2) return;
+      if (!canEdit || selectedNodes.length < 2) return;
       const ids = new Set(selectedNodes.map((n) => n.id));
       recordHistory(nodes, edges);
       setNodes((nds) => {
@@ -1225,12 +1517,12 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
       });
       isDirtyRef.current = true;
     },
-    [isAdmin, selectedNodes, nodes, edges, recordHistory, setNodes, getNodeSize]
+    [canEdit, selectedNodes, nodes, edges, recordHistory, setNodes, getNodeSize]
   );
 
   const handleDistribute = useCallback(
     (axis: 'horizontal' | 'vertical') => {
-      if (!isAdmin || selectedNodes.length < 3) return;
+      if (!canEdit || selectedNodes.length < 3) return;
       const ids = new Set(selectedNodes.map((n) => n.id));
       recordHistory(nodes, edges);
       setNodes((nds) => {
@@ -1263,12 +1555,12 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
       });
       isDirtyRef.current = true;
     },
-    [isAdmin, selectedNodes, nodes, edges, recordHistory, setNodes, getNodeSize]
+    [canEdit, selectedNodes, nodes, edges, recordHistory, setNodes, getNodeSize]
   );
 
   const handleMatchSize = useCallback(
     (dimension: 'width' | 'height') => {
-      if (!isAdmin || selectedNodes.length < 2) return;
+      if (!canEdit || selectedNodes.length < 2) return;
       const ids = new Set(selectedNodes.map((n) => n.id));
       const refSize = getNodeSize(selectedNodes[0]);
       recordHistory(nodes, edges);
@@ -1279,12 +1571,12 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
       );
       isDirtyRef.current = true;
     },
-    [isAdmin, selectedNodes, nodes, edges, recordHistory, setNodes, getNodeSize]
+    [canEdit, selectedNodes, nodes, edges, recordHistory, setNodes, getNodeSize]
   );
 
   const handleEjectGroupNodes = useCallback(
     (groupId: string) => {
-      if (!isAdmin) return;
+      if (!canEdit) return;
       const group = nodes.find((n) => n.id === groupId);
       if (!group || group.type !== 'groupNode') return;
 
@@ -1331,7 +1623,7 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
       );
       setTimeout(() => setToastMessage(null), 3500);
     },
-    [isAdmin, nodes, edges, recordHistory, setNodes]
+    [canEdit, nodes, edges, recordHistory, setNodes]
   );
 
   // Export handlers
@@ -1430,18 +1722,18 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
         diagram={diagram}
         collaborators={collaborators}
         onUpdateTitle={(title) => {
-          if (!isAdmin) return;
+          if (!canEdit) return;
           setDiagram((d) => ({ ...d, title }));
         }}
         onUpdateCategory={(category) => {
-          if (!isAdmin) return;
+          if (!canEdit) return;
           setDiagram((d) => ({ ...d, category }));
         }}
         isSaving={isSaving}
         onSaveNow={handleSaveNow}
-        canSaveNow={isAdmin && !isTemplate}
-        canUndo={isAdmin && history.length > 0}
-        canRedo={isAdmin && future.length > 0}
+        canSaveNow={canEdit && !isTemplate}
+        canUndo={canEdit && history.length > 0}
+        canRedo={canEdit && future.length > 0}
         onUndo={handleUndo}
         onRedo={handleRedo}
         onZoomIn={() => reactFlowInstance.zoomIn({ duration: 250 })}
@@ -1546,7 +1838,7 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
       )}
 
       {/* Conflict Banner: server has a newer version than the one we're editing */}
-      {isAdmin && conflictDiagram && (
+      {canEdit && conflictDiagram && (
         <div className="bg-rose-50 border-b border-rose-200/90 px-4 py-2 flex items-center justify-between text-xs text-rose-900 shadow-2xs z-30">
           <div className="flex items-center gap-2">
             <RefreshCw className="w-3.5 h-3.5 text-rose-600 shrink-0" />
@@ -1581,7 +1873,7 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
             <SidebarPalette
               onAddNode={handleAddNode}
               defaultCategory={diagram.category}
-              readOnly={!isAdmin}
+              readOnly={!canEdit}
             />
           </div>
         )}
@@ -1609,15 +1901,19 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
         </div>
 
         {/* Center React Flow Canvas */}
-        <div ref={reactFlowWrapper} className="flex-1 h-full w-full relative" onMouseMove={handleCanvasMouseMove}>
+        <div
+          ref={reactFlowWrapper}
+          className={`flex-1 h-full w-full relative ${commentModeActive ? 'cursor-crosshair' : ''}`}
+          onMouseMove={handleCanvasMouseMove}
+        >
           <ReactFlow
             nodes={nodes}
             edges={edges}
-            onNodesChange={isAdmin ? onNodesChangeTracked : undefined}
-            onEdgesChange={isAdmin ? onEdgesChangeTracked : undefined}
+            onNodesChange={canEdit ? onNodesChangeTracked : undefined}
+            onEdgesChange={canEdit ? onEdgesChangeTracked : undefined}
             onConnect={onConnect}
             onReconnect={onReconnect}
-            edgesReconnectable={isAdmin}
+            edgesReconnectable={canEdit}
             // Every node's Handle is hardcoded per side as either 'source'
             // (right/bottom) or 'target' (top/left) — see the node
             // components. React Flow's default 'strict' connectionMode only
@@ -1629,8 +1925,9 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
             connectionMode={ConnectionMode.Loose}
             onNodeDrag={onNodeDrag}
             onNodeDragStop={onNodeDragStop}
-            nodesDraggable={isAdmin}
-            nodesConnectable={isAdmin}
+            onPaneClick={handlePaneClick}
+            nodesDraggable={canEdit}
+            nodesConnectable={canEdit}
             elementsSelectable={true}
             // React Flow's default multiSelectionKeyCode is 'Meta' alone —
             // the Windows/Linux key, not Ctrl, which is what everyone on
@@ -1686,7 +1983,7 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
             />
           </ReactFlow>
 
-          {isAdmin && (
+          {canEdit && (
             <AlignmentToolbar
               count={selectedNodes.length}
               onAlign={handleAlign}
@@ -1700,7 +1997,7 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
               without this there's no on-canvas clue the gesture exists at
               all. Hidden as soon as something is selected or the canvas is
               too sparse for it to matter. */}
-          {isAdmin && selectedNodes.length === 0 && nodes.length >= 2 && (
+          {canEdit && selectedNodes.length === 0 && nodes.length >= 2 && (
             <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 pointer-events-none">
               <div className="flex items-center gap-1.5 bg-white/90 border border-slate-200 rounded-full shadow-xs px-3 py-1 text-[11px] text-slate-500">
                 <kbd className="px-1 py-0.5 rounded bg-slate-100 border border-slate-200 font-mono text-[10px]">
@@ -1716,10 +2013,11 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
           )}
 
           <CollaboratorCursors collaborators={collaborators} />
+          <CollaboratorSelections collaborators={collaborators} nodes={nodes} edges={edges} />
 
           <AlignmentGuides vertical={guides.vertical} horizontal={guides.horizontal} />
 
-          {isAdmin && nodes.length === 0 && (
+          {canEdit && nodes.length === 0 && (
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
               <div className="text-center max-w-xs px-6 py-8 rounded-2xl border-2 border-dashed border-slate-200 bg-white/60">
                 <p className="text-sm font-semibold text-slate-500">This diagram is empty</p>
@@ -1781,12 +2079,17 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
               onEjectGroupNodes={handleEjectGroupNodes}
               onDisconnectNodeEdges={handleDisconnectNodeEdges}
               selectedNodes={selectedNodes}
+              selectedEdges={selectedEdges}
               onBulkSetBgColor={handleBulkSetBgColor}
+              onBulkUpdateNodeData={handleBulkUpdateNodeData}
+              onBulkUpdateEdgeData={handleBulkUpdateEdgeData}
+              onBulkMoveEdgeEndpoint={handleBulkMoveEdgeEndpoint}
+              onBulkDeleteEdges={handleBulkDeleteEdges}
               onBulkDelete={handleBulkDelete}
               onBulkDisconnectEdges={handleBulkDisconnectEdges}
               nodeCount={nodes.length}
               edgeCount={edges.length}
-              readOnly={!isAdmin}
+              readOnly={!canEdit}
               diagramId={diagram.id}
             />
           </div>
@@ -1795,7 +2098,7 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
 
       <CommandPalette actions={commandPaletteActions} />
 
-      {isAdmin && (
+      {canEdit && (
         <AiAssistantModal
           isOpen={isAiModalOpen}
           onClose={() => setIsAiModalOpen(false)}

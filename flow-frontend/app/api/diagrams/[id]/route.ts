@@ -50,14 +50,17 @@ export async function PUT(
     );
   }
 
-  // Ensure user is ADMIN of this diagram
-  const isAdmin =
+  // ADMIN and EDITOR can both edit content; only ADMIN can delete (checked
+  // separately below in DELETE).
+  const canEdit =
     existing.userId === userId ||
-    existing.users?.some((u) => u.userId === userId && u.accesstype === 'ADMIN');
+    existing.users?.some(
+      (u) => u.userId === userId && (u.accesstype === 'ADMIN' || u.accesstype === 'EDITOR')
+    );
 
-  if (!isAdmin) {
+  if (!canEdit) {
     return NextResponse.json(
-      { error: 'Forbidden: Only the diagram ADMIN can edit this diagram.' },
+      { error: 'Forbidden: Only the diagram ADMIN or an EDITOR can edit this diagram.' },
       { status: 403 }
     );
   }

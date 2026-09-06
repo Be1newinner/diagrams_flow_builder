@@ -7,6 +7,7 @@ interface ShareViewer {
   userId: string;
   name: string;
   email: string;
+  accesstype: 'EDITOR' | 'VIEWER';
 }
 
 interface ShareModalProps {
@@ -27,7 +28,9 @@ export function ShareModal({ isOpen, onClose, diagramId, diagramTitle }: ShareMo
   const [linkCopied, setLinkCopied] = useState(false);
 
   const [email, setEmail] = useState('');
+  const [inviteRole, setInviteRole] = useState<'EDITOR' | 'VIEWER'>('VIEWER');
   const [inviting, setInviting] = useState(false);
+  const [changingRoleUserId, setChangingRoleUserId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
@@ -52,6 +55,7 @@ export function ShareModal({ isOpen, onClose, diagramId, diagramTitle }: ShareMo
 
   const handleClose = () => {
     setEmail('');
+    setInviteRole('VIEWER');
     setError(null);
     setSuccess(null);
     setLinkCopied(false);
@@ -69,14 +73,14 @@ export function ShareModal({ isOpen, onClose, diagramId, diagramTitle }: ShareMo
       const res = await fetch(`/api/diagrams/${diagramId}/share`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email.trim() }),
+        body: JSON.stringify({ email: email.trim(), accesstype: inviteRole }),
       });
       const data = await res.json();
       if (!res.ok || !data.success) {
         setError(data.error || 'Failed to share diagram.');
         return;
       }
-      setSuccess(`Invite sent to ${email.trim()}.`);
+      setSuccess(`Invite sent to ${email.trim()} as ${inviteRole === 'EDITOR' ? 'an editor' : 'a viewer'}.`);
       setEmail('');
       // Re-fetch instead of guessing the new viewer's name/email locally.
       const refreshed = await fetch(`/api/diagrams/${diagramId}/share`);
@@ -88,6 +92,34 @@ export function ShareModal({ isOpen, onClose, diagramId, diagramTitle }: ShareMo
       setError(err instanceof Error ? err.message : 'Network error.');
     } finally {
       setInviting(false);
+    }
+  };
+
+  // Re-inviting an already-shared email changes their role instead of
+  // being a no-op (see shareDiagramWithUser) — reused here to promote a
+  // viewer to editor or demote an editor back to viewer.
+  const handleChangeRole = async (v: ShareViewer, nextRole: 'EDITOR' | 'VIEWER') => {
+    if (v.accesstype === nextRole) return;
+    setChangingRoleUserId(v.userId);
+    setError(null);
+    try {
+      const res = await fetch(`/api/diagrams/${diagramId}/share`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: v.email, accesstype: nextRole }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        setError(data.error || 'Failed to change role.');
+        return;
+      }
+      setViewers((prev) =>
+        prev ? prev.map((p) => (p.userId === v.userId ? { ...p, accesstype: nextRole } : p)) : prev
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Network error.');
+    } finally {
+      setChangingRoleUserId(null);
     }
   };
 
@@ -174,7 +206,10 @@ export function ShareModal({ isOpen, onClose, diagramId, diagramTitle }: ShareMo
           <div>
             <span className="font-semibold text-slate-800 block mb-1.5">Invite by email</span>
             <p className="text-slate-400 leading-relaxed mb-2">
-              They&apos;ll get an email with a link and read-only (viewer) access — they can&apos;t edit this diagram, including through the AI/MCP integration.
+              They&apos;ll get an email with a link.{' '}
+              {inviteRole === 'EDITOR'
+                ? 'As an editor they can add, move, and style nodes/edges — but can’t manage sharing or delete the diagram.'
+                : 'As a viewer they get read-only access — they can’t edit this diagram, including through the AI/MCP integration.'}
             </p>
             <form onSubmit={handleInvite} className="flex items-center gap-2">
               <div className="relative flex-1">
@@ -187,6 +222,14 @@ export function ShareModal({ isOpen, onClose, diagramId, diagramTitle }: ShareMo
                   className="w-full pl-7 pr-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:border-blue-500 focus:bg-white"
                 />
               </div>
+              <select
+                value={inviteRole}
+                onChange={(e) => setInviteRole(e.target.value as 'EDITOR' | 'VIEWER')}
+                className="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:border-blue-500 shrink-0"
+              >
+                <option value="VIEWER">Viewer</option>
+                <option value="EDITOR">Editor</option>
+              </select>
               <button
                 type="submit"
                 disabled={inviting || !email.trim()}
@@ -222,9 +265,20 @@ export function ShareModal({ isOpen, onClose, diagramId, diagramTitle }: ShareMo
                       <div className="font-medium text-slate-800 truncate">{v.name}</div>
                       <div className="text-[10px] text-slate-400 truncate">{v.email}</div>
                     </div>
-                    <span className="px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700 text-[9px] font-bold border border-amber-200 shrink-0">
-                      Viewer
-                    </span>
+                    <select
+                      value={v.accesstype}
+                      disabled={changingRoleUserId === v.userId}
+                      onChange={(e) => handleChangeRole(v, e.target.value as 'EDITOR' | 'VIEWER')}
+                      className={`px-1.5 py-1 rounded-lg text-[10px] font-semibold border shrink-0 cursor-pointer disabled:opacity-50 ${
+                        v.accesstype === 'EDITOR'
+                          ? 'bg-blue-50 text-blue-700 border-blue-200'
+                          : 'bg-amber-50 text-amber-700 border-amber-200'
+                      }`}
+                      title="Change role"
+                    >
+                      <option value="VIEWER">Viewer</option>
+                      <option value="EDITOR">Editor</option>
+                    </select>
                     <button
                       onClick={() => handleRevoke(v.userId)}
                       disabled={revokingUserId === v.userId}

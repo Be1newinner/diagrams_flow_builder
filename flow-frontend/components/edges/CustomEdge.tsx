@@ -22,6 +22,7 @@ function CustomEdgeComponent({
   sourcePosition,
   targetPosition,
   style = {},
+  markerStart,
   markerEnd,
   data,
   selected,
@@ -83,7 +84,7 @@ function CustomEdgeComponent({
 
   return (
     <>
-      <BaseEdge path={edgePath} markerEnd={markerEnd} style={customStyle} />
+      <BaseEdge path={edgePath} markerStart={markerStart} markerEnd={markerEnd} style={customStyle} />
       <EdgeLabelRenderer>
         <div
           style={{

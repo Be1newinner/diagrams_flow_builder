@@ -65,22 +65,27 @@ function deleteFileDiagram(id: string): boolean {
   }
 }
 
-// Normalizes users array on diagram to ensure exactly one ADMIN
+// Normalizes users array on diagram to ensure exactly one ADMIN, preserving
+// each other member's own EDITOR/VIEWER role rather than collapsing
+// everyone non-admin to VIEWER.
 export function normalizeDiagramUsers(diagram: Diagram, defaultAdminId: string): DiagramUserAccess[] {
   const existingUsers = diagram.users && diagram.users.length > 0 ? [...diagram.users] : [];
-  
+
   // Find designated admin
   const foundAdmin = existingUsers.find((u) => u.accesstype === 'ADMIN');
   const adminId = foundAdmin?.userId || diagram.userId || defaultAdminId;
 
-  // Filter out any duplicate admin entries and convert others to VIEWER
-  const viewers = existingUsers
+  // Filter out any duplicate admin entries; keep everyone else's own role.
+  const others = existingUsers
     .filter((u) => u.userId !== adminId)
-    .map((u) => ({ userId: u.userId, accesstype: 'VIEWER' as const }));
+    .map((u) => ({
+      userId: u.userId,
+      accesstype: u.accesstype === 'EDITOR' ? ('EDITOR' as const) : ('VIEWER' as const),
+    }));
 
   return [
     { userId: adminId, accesstype: 'ADMIN' as const },
-    ...viewers,
+    ...others,
   ];
 }
 
@@ -274,13 +279,16 @@ export async function saveServerDiagram(
   // node/edge mutation was doing 2 reads + 1 write per call before this.
   const existing = preFetchedExisting !== undefined ? preFetchedExisting : await getServerDiagram(diagram.id, userId);
   if (existing) {
-    // Only ADMIN can edit!
-    const isAdmin =
+    // ADMIN and EDITOR can both edit content; only ADMIN can delete or
+    // manage sharing (checked separately in those functions below).
+    const canEdit =
       existing.userId === userId ||
-      existing.users?.some((u) => u.userId === userId && u.accesstype === 'ADMIN');
+      existing.users?.some(
+        (u) => u.userId === userId && (u.accesstype === 'ADMIN' || u.accesstype === 'EDITOR')
+      );
 
-    if (!isAdmin) {
-      throw new Error('Forbidden: Only the diagram ADMIN can edit this diagram.');
+    if (!canEdit) {
+      throw new Error('Forbidden: Only the diagram ADMIN or an EDITOR can edit this diagram.');
     }
   } else {
     // Creating new diagram: enforce 30-diagram limit on creating ADMIN
@@ -350,7 +358,8 @@ export async function saveServerDiagram(
 export async function shareDiagramWithUser(
   diagramId: string,
   adminUserId: string,
-  viewerUserId: string
+  viewerUserId: string,
+  accesstype: 'VIEWER' | 'EDITOR' = 'VIEWER'
 ): Promise<Diagram> {
   const existing = await getServerDiagram(diagramId, adminUserId);
   if (!existing) throw new Error('Diagram not found or access denied');
@@ -361,12 +370,15 @@ export async function shareDiagramWithUser(
   if (!isAdmin) throw new Error('Forbidden: Only the diagram ADMIN can share this diagram.');
 
   if (viewerUserId === adminUserId) throw new Error('You already have access to this diagram.');
-  if (existing.users?.some((u) => u.userId === viewerUserId)) return existing;
 
-  const updated: Diagram = {
-    ...existing,
-    users: [...(existing.users || []), { userId: viewerUserId, accesstype: 'VIEWER' }],
-  };
+  const alreadyShared = existing.users?.some((u) => u.userId === viewerUserId);
+  const nextUsers = alreadyShared
+    // Already invited — re-inviting with a role changes it (promote/demote)
+    // instead of being a no-op, so the same UI action works for both cases.
+    ? (existing.users || []).map((u) => (u.userId === viewerUserId ? { ...u, accesstype } : u))
+    : [...(existing.users || []), { userId: viewerUserId, accesstype }];
+
+  const updated: Diagram = { ...existing, users: nextUsers };
   return saveServerDiagram(updated, adminUserId, existing);
 }
 

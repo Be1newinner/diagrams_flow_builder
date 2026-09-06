@@ -35,11 +35,16 @@ export async function GET(request: Request, props: { params: Promise<{ id: strin
     );
   }
 
-  const viewerIds = (diagram.users || []).filter((u) => u.accesstype === 'VIEWER').map((u) => u.userId);
+  const shared = (diagram.users || []).filter((u) => u.accesstype !== 'ADMIN');
   const viewers = await Promise.all(
-    viewerIds.map(async (vid) => {
-      const u = await findUserById(vid);
-      return { userId: vid, name: u?.name || 'Unknown user', email: u?.email || '' };
+    shared.map(async (u) => {
+      const found = await findUserById(u.userId);
+      return {
+        userId: u.userId,
+        name: found?.name || 'Unknown user',
+        email: found?.email || '',
+        accesstype: u.accesstype,
+      };
     })
   );
 
@@ -59,9 +64,11 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
   }
 
   let email: string;
+  let accesstype: 'VIEWER' | 'EDITOR' = 'VIEWER';
   try {
     const body = await request.json();
     email = (body.email || '').trim().toLowerCase();
+    if (body.accesstype === 'EDITOR') accesstype = 'EDITOR';
   } catch {
     return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
   }
@@ -81,7 +88,7 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
   const admin = await findUserById(userId);
 
   try {
-    const updated = await shareDiagramWithUser(id, userId, invitee.id);
+    const updated = await shareDiagramWithUser(id, userId, invitee.id, accesstype);
 
     const origin = new URL(request.url).origin;
     const diagramUrl = `${origin}/flow/${id}`;
