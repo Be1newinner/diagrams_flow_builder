@@ -54,6 +54,7 @@ import {
   fetchLatestFromServer,
 } from '@/lib/storage';
 import { tidyLayout } from '@/lib/layout';
+import { loadUndoStack, saveUndoStack } from '@/lib/undoStorage';
 
 import { SystemNode } from '@/components/nodes/SystemNode';
 import { FlowchartNode } from '@/components/nodes/FlowchartNode';
@@ -247,9 +248,25 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
     ? 'VIEWER'
     : 'GUEST';
 
-  const [history, setHistory] = useState<{ nodes: Node[]; edges: Edge[] }[]>([]);
-  const [future, setFuture] = useState<{ nodes: Node[]; edges: Edge[] }[]>([]);
+  // Undo/redo lives only in this browser tab's session — never sent to the
+  // server, unrelated to the DB-backed activity/version history. Seeded
+  // from localStorage so a refresh (or an accidental tab close) doesn't
+  // throw away the ability to undo what you were just doing; see
+  // lib/undoStorage.ts.
+  const [history, setHistory] = useState<{ nodes: Node[]; edges: Edge[] }[]>(
+    () => loadUndoStack(initialDiagram.id).history
+  );
+  const [future, setFuture] = useState<{ nodes: Node[]; edges: Edge[] }[]>(
+    () => loadUndoStack(initialDiagram.id).future
+  );
   const isUndoRedoAction = useRef(false);
+
+  // Persist on every change. diagram.id is stable for this page's lifetime
+  // (a different diagram id is a full navigation/remount), so this always
+  // writes to the same key a given tab reads from.
+  useEffect(() => {
+    saveUndoStack(diagram.id, { history, future });
+  }, [diagram.id, history, future]);
 
   // Record history snapshot on significant changes
   const recordHistory = useCallback((newNodes: Node[], newEdges: Edge[]) => {
@@ -1598,6 +1615,18 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
     [getNodeSize]
   );
 
+  // Dragging a node is the single most common edit on this canvas, but it
+  // never went through recordHistory anywhere — onNodesChangeTracked only
+  // flips isDirtyRef for a position change, and onNodeDragStop only clears
+  // the alignment guides. So Undo right after moving a node silently did
+  // nothing (there was nothing on the history stack to undo to). Recording
+  // at drag START (not stop) is what captures the pre-drag position; by
+  // dragStop the state already reflects the new position.
+  const onNodeDragStart = useCallback(() => {
+    if (!canEdit) return;
+    recordHistory(nodes, edges);
+  }, [canEdit, nodes, edges, recordHistory]);
+
   const onNodeDrag = useCallback(
     (_event: MouseEvent | TouchEvent, draggedNode: Node) => {
       if (!canEdit) return;
@@ -2101,6 +2130,7 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
             // it was dropped on. 'loose' drops that pairing requirement:
             // any handle can start or end a connection, on any side.
             connectionMode={ConnectionMode.Loose}
+            onNodeDragStart={onNodeDragStart}
             onNodeDrag={onNodeDrag}
             onNodeDragStop={onNodeDragStop}
             onPaneClick={handlePaneClick}
