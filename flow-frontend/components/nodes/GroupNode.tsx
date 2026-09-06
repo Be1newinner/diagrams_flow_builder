@@ -3,6 +3,7 @@
 import React, { memo } from 'react';
 import { NodeProps, NodeResizer } from '@xyflow/react';
 import { GroupNodeData } from '@/types/diagram';
+import { getNodeStyleOverrides } from '@/lib/nodeStyleOverrides';
 
 const PRESET_STYLES: Record<string, { bg: string; border: string; text: string; headerBg: string }> = {
   slate: { bg: 'bg-slate-50/50', border: 'border-slate-300', text: 'text-slate-700', headerBg: 'bg-slate-200/80' },
@@ -16,6 +17,7 @@ const PRESET_STYLES: Record<string, { bg: string; border: string; text: string; 
 function GroupNodeComponent({ data, selected }: NodeProps) {
   const nodeData = data as unknown as GroupNodeData;
   const style = PRESET_STYLES[nodeData.stylePreset || 'slate'] || PRESET_STYLES.slate;
+  const { wrapperStyle, textStyle } = getNodeStyleOverrides(nodeData);
 
   return (
     <div
@@ -24,7 +26,7 @@ function GroupNodeComponent({ data, selected }: NodeProps) {
       } relative transition-all duration-150 ${
         selected ? 'ring-2 ring-blue-400 border-blue-500 border-solid shadow-md' : ''
       }`}
-      style={{ backgroundColor: nodeData.bgColor }}
+      style={{ backgroundColor: nodeData.bgColor, ...wrapperStyle }}
     >
       <NodeResizer
         minWidth={200}
@@ -36,7 +38,10 @@ function GroupNodeComponent({ data, selected }: NodeProps) {
 
       {/* Group Title Badge */}
       <div className="absolute top-2 left-2 flex items-center gap-1.5 z-10 pointer-events-auto">
-        <span className={`px-2.5 py-1 rounded-md text-xs font-semibold ${style.headerBg} ${style.text} shadow-xs border border-white/60`}>
+        <span
+          className={`px-2.5 py-1 rounded-md text-xs font-semibold ${style.headerBg} ${style.text} shadow-xs border border-white/60`}
+          style={textStyle}
+        >
           {nodeData.label || 'Group / Container'}
         </span>
       </div>

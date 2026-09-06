@@ -31,6 +31,10 @@ import {
   ArrowRight,
   ArrowDown,
   ArrowLeft,
+  AlignLeft,
+  AlignCenter,
+  AlignRight,
+  Droplet,
 } from 'lucide-react';
 import {
   SystemNodeData,
@@ -48,6 +52,7 @@ interface PropertiesPanelProps {
   nodes: Node[];
   edges: Edge[];
   onUpdateNodeData: (id: string, newData: Record<string, any>) => void;
+  onUpdateNodeGeometry: (id: string, geometry: { width?: number; height?: number; x?: number; y?: number }) => void;
   onUpdateEdgeData: (id: string, newData: Record<string, any>) => void;
   onMoveEdgeEndpoint: (id: string, end: 'source' | 'target', handleId: 'top' | 'bottom' | 'left' | 'right') => void;
   onDuplicateNode: (id: string) => void;
@@ -149,6 +154,7 @@ export function PropertiesPanel({
   nodes,
   edges,
   onUpdateNodeData,
+  onUpdateNodeGeometry,
   onUpdateEdgeData,
   onMoveEdgeEndpoint,
   onDuplicateNode,
@@ -833,6 +839,215 @@ export function PropertiesPanel({
               />
             </>
           )}
+
+          {/* Layout & Style — common to every node type, appended after each
+              type's own fields rather than duplicated into every branch
+              above. Width/height/position live on the Node object itself
+              (same fields NodeResizer/canvas dragging already write to), so
+              they go through onUpdateNodeGeometry instead of onUpdateNodeData. */}
+          <div className="pt-3 border-t border-slate-100">
+            <div className="flex items-center gap-1.5 mb-2">
+              <Maximize className="w-3.5 h-3.5 text-blue-600" />
+              <label className="font-semibold text-slate-700">Layout</label>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-[11px] font-medium text-slate-500 block mb-1">Width</label>
+                <input
+                  type="number"
+                  value={Math.round(selectedNode.width ?? selectedNode.measured?.width ?? 0)}
+                  onChange={(e) =>
+                    onUpdateNodeGeometry(selectedNode.id, { width: Number(e.target.value) })
+                  }
+                  className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:border-blue-500"
+                />
+              </div>
+              <div>
+                <label className="text-[11px] font-medium text-slate-500 block mb-1">Height</label>
+                <input
+                  type="number"
+                  value={Math.round(selectedNode.height ?? selectedNode.measured?.height ?? 0)}
+                  onChange={(e) =>
+                    onUpdateNodeGeometry(selectedNode.id, { height: Number(e.target.value) })
+                  }
+                  className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:border-blue-500"
+                />
+              </div>
+              <div>
+                <label className="text-[11px] font-medium text-slate-500 block mb-1">X Position</label>
+                <input
+                  type="number"
+                  value={Math.round(selectedNode.position.x)}
+                  onChange={(e) => onUpdateNodeGeometry(selectedNode.id, { x: Number(e.target.value) })}
+                  className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:border-blue-500"
+                />
+              </div>
+              <div>
+                <label className="text-[11px] font-medium text-slate-500 block mb-1">Y Position</label>
+                <input
+                  type="number"
+                  value={Math.round(selectedNode.position.y)}
+                  onChange={(e) => onUpdateNodeGeometry(selectedNode.id, { y: Number(e.target.value) })}
+                  className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:border-blue-500"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="pt-3 border-t border-slate-100">
+            <div className="flex items-center gap-1.5 mb-2">
+              <Palette className="w-3.5 h-3.5 text-blue-600" />
+              <label className="font-semibold text-slate-700">Style</label>
+            </div>
+
+            <div className="mb-2.5">
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-[11px] font-medium text-slate-500 flex items-center gap-1">
+                  <Droplet className="w-3 h-3" />
+                  Opacity
+                </label>
+                <span className="text-[11px] font-mono text-slate-500">
+                  {Math.round((data.opacity ?? 1) * 100)}%
+                </span>
+              </div>
+              <input
+                type="range"
+                min={0}
+                max={100}
+                value={Math.round((data.opacity ?? 1) * 100)}
+                onChange={(e) =>
+                  onUpdateNodeData(selectedNode.id, { opacity: Number(e.target.value) / 100 })
+                }
+                className="w-full accent-blue-600 cursor-pointer"
+              />
+            </div>
+
+            <div className="mb-2.5">
+              <label className="text-[11px] font-medium text-slate-500 block mb-1">Text Align</label>
+              <div className="grid grid-cols-3 gap-1.5">
+                {(
+                  [
+                    { id: 'left', label: 'Left', icon: <AlignLeft className="w-3.5 h-3.5" /> },
+                    { id: 'center', label: 'Center', icon: <AlignCenter className="w-3.5 h-3.5" /> },
+                    { id: 'right', label: 'Right', icon: <AlignRight className="w-3.5 h-3.5" /> },
+                  ] as const
+                ).map((align) => (
+                  <button
+                    key={align.id}
+                    onClick={() => onUpdateNodeData(selectedNode.id, { textAlign: align.id })}
+                    className={`flex items-center justify-center py-1.5 rounded-lg border transition-colors cursor-pointer ${
+                      (data.textAlign || 'left') === align.id
+                        ? 'border-blue-500 bg-blue-50 text-blue-700'
+                        : 'border-slate-200 text-slate-500 hover:border-slate-300 hover:bg-slate-50'
+                    }`}
+                    title={align.label}
+                  >
+                    {align.icon}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 mb-2.5">
+              <div>
+                <label className="text-[11px] font-medium text-slate-500 block mb-1">Border Radius</label>
+                <input
+                  type="number"
+                  min={0}
+                  placeholder="Default"
+                  value={typeof data.borderRadius === 'number' ? data.borderRadius : ''}
+                  onChange={(e) =>
+                    onUpdateNodeData(selectedNode.id, {
+                      borderRadius: e.target.value === '' ? undefined : Number(e.target.value),
+                    })
+                  }
+                  className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:border-blue-500"
+                />
+              </div>
+              <div>
+                <label className="text-[11px] font-medium text-slate-500 block mb-1">Stroke Width</label>
+                <input
+                  type="number"
+                  min={0}
+                  placeholder="Default"
+                  value={typeof data.strokeWidth === 'number' ? data.strokeWidth : ''}
+                  onChange={(e) =>
+                    onUpdateNodeData(selectedNode.id, {
+                      strokeWidth: e.target.value === '' ? undefined : Number(e.target.value),
+                    })
+                  }
+                  className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:border-blue-500"
+                />
+              </div>
+            </div>
+
+            <div className="mb-2.5">
+              <BackgroundColorControl
+                label="Stroke Color"
+                value={data.strokeColor}
+                onChange={(hex) => onUpdateNodeData(selectedNode.id, { strokeColor: hex })}
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 mb-2.5">
+              <div>
+                <label className="text-[11px] font-medium text-slate-500 block mb-1">Font Size</label>
+                <input
+                  type="number"
+                  min={8}
+                  placeholder="Default"
+                  value={typeof data.fontSize === 'number' ? data.fontSize : ''}
+                  onChange={(e) =>
+                    onUpdateNodeData(selectedNode.id, {
+                      fontSize: e.target.value === '' ? undefined : Number(e.target.value),
+                    })
+                  }
+                  className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:border-blue-500"
+                />
+              </div>
+              <div>
+                <label className="text-[11px] font-medium text-slate-500 block mb-1">Font Weight</label>
+                <select
+                  value={data.fontWeight || ''}
+                  onChange={(e) =>
+                    onUpdateNodeData(selectedNode.id, { fontWeight: e.target.value || undefined })
+                  }
+                  className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:border-blue-500"
+                >
+                  <option value="">Default</option>
+                  <option value="normal">Normal</option>
+                  <option value="medium">Medium</option>
+                  <option value="semibold">Semibold</option>
+                  <option value="bold">Bold</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="mb-2.5">
+              <BackgroundColorControl
+                label="Font Color"
+                value={data.fontColor}
+                onChange={(hex) => onUpdateNodeData(selectedNode.id, { fontColor: hex })}
+              />
+            </div>
+
+            <div>
+              <label className="text-[11px] font-medium text-slate-500 block mb-1">Font Family</label>
+              <select
+                value={data.fontFamily || ''}
+                onChange={(e) =>
+                  onUpdateNodeData(selectedNode.id, { fontFamily: e.target.value || undefined })
+                }
+                className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:border-blue-500"
+              >
+                <option value="">Default</option>
+                <option value="Inter, system-ui, sans-serif">Sans-serif (Inter)</option>
+                <option value="Georgia, 'Times New Roman', serif">Serif (Georgia)</option>
+                <option value="'JetBrains Mono', 'Courier New', monospace">Monospace</option>
+                <option value="'Comic Sans MS', cursive">Comic Sans</option>
+              </select>
+            </div>
+          </div>
         </fieldset>
       </aside>
     );

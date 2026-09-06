@@ -3,6 +3,7 @@
 import React, { memo } from 'react';
 import { Handle, Position, NodeProps, NodeResizer } from '@xyflow/react';
 import { FlowchartNodeData } from '@/types/diagram';
+import { getNodeStyleOverrides } from '@/lib/nodeStyleOverrides';
 
 const THEME_COLORS: Record<string, { border: string; bg: string; text: string; ring: string }> = {
   blue: { border: 'border-blue-400', bg: 'bg-blue-50/40', text: 'text-blue-900', ring: 'ring-blue-400' },
@@ -18,6 +19,7 @@ function FlowchartNodeComponent({ data, selected }: NodeProps) {
   const nodeData = data as unknown as FlowchartNodeData;
   const theme = THEME_COLORS[nodeData.themeColor || 'slate'] || THEME_COLORS.slate;
   const shape = nodeData.shape || 'process';
+  const { wrapperStyle, textStyle } = getNodeStyleOverrides(nodeData);
 
   if (shape === 'decision') {
     return (
@@ -88,12 +90,12 @@ function FlowchartNodeComponent({ data, selected }: NodeProps) {
           className={`absolute inset-3 rotate-45 bg-white ${theme.border} border-2 rounded-md shadow-sm transition-all duration-150 ${
             selected ? 'border-amber-500 shadow-md ring-2 ring-amber-400/40' : ''
           }`}
-          style={{ backgroundColor: nodeData.bgColor }}
+          style={{ backgroundColor: nodeData.bgColor, ...wrapperStyle }}
         />
 
         {/* Content Container (un-rotated) */}
         <div className="relative z-10 p-3 text-center max-w-[70%]">
-          <p className="text-xs font-semibold text-slate-800 leading-tight">
+          <p className="text-xs font-semibold text-slate-800 leading-tight" style={textStyle}>
             {nodeData.label || 'Decision?'}
           </p>
           {nodeData.description && (
@@ -112,7 +114,7 @@ function FlowchartNodeComponent({ data, selected }: NodeProps) {
         className={`relative w-full h-full min-w-[170px] min-h-[60px] flex flex-col items-center justify-center px-5 py-2.5 bg-white rounded-full border-2 text-center transition-all duration-150 shadow-sm ${
           theme.border
         } ${selected ? 'border-blue-500 shadow-md ring-2 ring-blue-400/40' : ''}`}
-        style={{ backgroundColor: nodeData.bgColor }}
+        style={{ backgroundColor: nodeData.bgColor, ...wrapperStyle }}
       >
         <NodeResizer
           minWidth={170}
@@ -130,7 +132,7 @@ function FlowchartNodeComponent({ data, selected }: NodeProps) {
         <Handle type="target" position={Position.Left} id="left" className="!w-2.5 !h-2.5 !bg-blue-500 !border-2 !border-white" />
         <Handle type="source" position={Position.Left} id="left" className="!w-2.5 !h-2.5 !bg-blue-500 !border-2 !border-white" />
 
-        <div className="font-semibold text-xs text-slate-800 truncate">
+        <div className="font-semibold text-xs text-slate-800 truncate" style={textStyle}>
           {nodeData.label || 'Start / End'}
         </div>
         {nodeData.description && (
@@ -165,10 +167,10 @@ function FlowchartNodeComponent({ data, selected }: NodeProps) {
           className={`-skew-x-12 w-full h-full flex flex-col items-center justify-center bg-white rounded-md border-2 px-5 py-3 transition-all duration-150 shadow-sm ${
             theme.border
           } ${selected ? 'border-cyan-500 shadow-md ring-2 ring-cyan-400/40' : ''}`}
-          style={{ backgroundColor: nodeData.bgColor }}
+          style={{ backgroundColor: nodeData.bgColor, ...wrapperStyle }}
         >
           <div className="skew-x-12 text-center">
-            <div className="font-semibold text-xs text-slate-800 truncate">
+            <div className="font-semibold text-xs text-slate-800 truncate" style={textStyle}>
               {nodeData.label || 'Input / Output'}
             </div>
             {nodeData.description && (
@@ -188,7 +190,7 @@ function FlowchartNodeComponent({ data, selected }: NodeProps) {
       className={`relative w-full h-full min-w-[190px] min-h-[70px] bg-white rounded-lg border-2 p-3 text-center transition-all duration-150 shadow-sm ${
         theme.border
       } ${selected ? 'border-blue-500 shadow-md ring-2 ring-blue-400/40' : ''}`}
-      style={{ backgroundColor: nodeData.bgColor }}
+      style={{ backgroundColor: nodeData.bgColor, ...wrapperStyle }}
     >
       <NodeResizer
         minWidth={190}
@@ -206,7 +208,7 @@ function FlowchartNodeComponent({ data, selected }: NodeProps) {
       <Handle type="target" position={Position.Left} id="left" className="!w-2.5 !h-2.5 !bg-blue-500 !border-2 !border-white" />
       <Handle type="source" position={Position.Left} id="left" className="!w-2.5 !h-2.5 !bg-blue-500 !border-2 !border-white" />
 
-      <div className="font-semibold text-xs text-slate-800 leading-snug">
+      <div className="font-semibold text-xs text-slate-800 leading-snug" style={textStyle}>
         {nodeData.label || 'Process Step'}
       </div>
       {nodeData.description && (

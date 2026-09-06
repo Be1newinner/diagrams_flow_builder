@@ -4,6 +4,7 @@ import React, { memo, useState } from 'react';
 import { Handle, Position, NodeProps, NodeResizer } from '@xyflow/react';
 import { ImageIcon, AlertTriangle } from 'lucide-react';
 import { ImageNodeData } from '@/types/diagram';
+import { getNodeStyleOverrides } from '@/lib/nodeStyleOverrides';
 
 // Only allow schemes an <img src> can legitimately need. This is defense in
 // depth rather than a response to a real exploit — a browser won't execute
@@ -26,6 +27,7 @@ function ImageNodeComponent({ data, selected }: NodeProps) {
   // just stops matching) without an effect to reset it on prop change.
   const [brokenSrc, setBrokenSrc] = useState<string | null>(null);
   const broken = safe && brokenSrc === src;
+  const { wrapperStyle } = getNodeStyleOverrides(nodeData);
 
   return (
     <div
@@ -56,6 +58,7 @@ function ImageNodeComponent({ data, selected }: NodeProps) {
         className={`w-full h-full rounded-md transition-all ${
           selected ? 'ring-2 ring-blue-400/60' : ''
         }`}
+        style={wrapperStyle}
       >
         {!src ? (
           <div className="w-full h-full flex flex-col items-center justify-center gap-1.5 rounded-md border-2 border-dashed border-slate-300 bg-slate-50 text-slate-400">

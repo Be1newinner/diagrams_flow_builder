@@ -26,6 +26,7 @@ import {
   LucideIcon,
 } from 'lucide-react';
 import { SystemNodeData } from '@/types/diagram';
+import { getNodeStyleOverrides } from '@/lib/nodeStyleOverrides';
 
 const ICON_MAP: Record<string, LucideIcon> = {
   server: Server,
@@ -121,13 +122,14 @@ function SystemNodeComponent({ data, selected }: NodeProps) {
   const nodeData = data as unknown as SystemNodeData;
   const theme = COLOR_MAP[nodeData.themeColor || 'blue'] || COLOR_MAP.blue;
   const IconComponent = ICON_MAP[nodeData.icon] || Server;
+  const { wrapperStyle, textStyle } = getNodeStyleOverrides(nodeData);
 
   return (
     <div
       className={`relative w-full h-full min-w-[200px] min-h-[96px] bg-white rounded-xl border-2 transition-all duration-150 shadow-sm hover:shadow-md ${
         selected ? 'border-blue-500 shadow-md ring-2 ring-blue-400/30' : theme.border
       }`}
-      style={{ backgroundColor: nodeData.bgColor }}
+      style={{ backgroundColor: nodeData.bgColor, ...wrapperStyle }}
     >
       <NodeResizer
         minWidth={200}
@@ -207,7 +209,7 @@ function SystemNodeComponent({ data, selected }: NodeProps) {
           {/* Titles & Meta */}
           <div className="flex-1 min-w-0">
             <div className="flex items-center justify-between gap-1 mb-0.5">
-              <span className="text-xs font-semibold text-slate-800 truncate block">
+              <span className="text-xs font-semibold text-slate-800 truncate block" style={textStyle}>
                 {nodeData.title || 'System Node'}
               </span>
             </div>

@@ -4,6 +4,7 @@ import React, { memo } from 'react';
 import { Handle, Position, NodeProps, NodeResizer } from '@xyflow/react';
 import { Table, Key, Hash } from 'lucide-react';
 import { ERTableNodeData } from '@/types/diagram';
+import { getNodeStyleOverrides } from '@/lib/nodeStyleOverrides';
 
 const HEADER_THEMES: Record<string, { bg: string; text: string; border: string }> = {
   blue: { bg: 'bg-blue-600', text: 'text-white', border: 'border-blue-200' },
@@ -19,13 +20,14 @@ function ERTableNodeComponent({ data, selected }: NodeProps) {
   const nodeData = data as unknown as ERTableNodeData;
   const headerTheme = HEADER_THEMES[nodeData.headerColor || 'blue'] || HEADER_THEMES.blue;
   const columns = nodeData.columns || [];
+  const { wrapperStyle, textStyle } = getNodeStyleOverrides(nodeData);
 
   return (
     <div
       className={`relative w-full h-full min-w-[240px] min-h-[100px] bg-white rounded-lg border-2 shadow-sm transition-all duration-150 overflow-hidden flex flex-col ${
         selected ? 'border-blue-500 shadow-md ring-2 ring-blue-400/40' : 'border-slate-200'
       }`}
-      style={{ backgroundColor: nodeData.bgColor }}
+      style={{ backgroundColor: nodeData.bgColor, ...wrapperStyle }}
     >
       <NodeResizer
         minWidth={240}
@@ -52,7 +54,7 @@ function ERTableNodeComponent({ data, selected }: NodeProps) {
       <div className={`${headerTheme.bg} ${headerTheme.text} shrink-0 px-3 py-2 flex items-center justify-between`}>
         <div className="flex items-center gap-1.5 min-w-0">
           <Table className="w-3.5 h-3.5 shrink-0 opacity-85" />
-          <span className="font-semibold text-xs tracking-wide truncate">
+          <span className="font-semibold text-xs tracking-wide truncate" style={textStyle}>
             {nodeData.tableName || 'table_name'}
           </span>
         </div>

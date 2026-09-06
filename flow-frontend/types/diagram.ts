@@ -20,7 +20,22 @@ export interface ERColumn {
   isNullable?: boolean;
 }
 
-export interface SystemNodeData {
+// Shared appearance overrides available on every node type from the
+// Properties panel's common "Style" section — layered on top of each type's
+// own theme/color system via inline style, not a replacement for it.
+export interface NodeStyleOverrides {
+  borderRadius?: number;
+  strokeWidth?: number;
+  strokeColor?: string;
+  fontSize?: number;
+  fontColor?: string;
+  fontWeight?: 'normal' | 'medium' | 'semibold' | 'bold';
+  fontFamily?: string;
+  opacity?: number; // 0–1
+  textAlign?: 'left' | 'center' | 'right';
+}
+
+export interface SystemNodeData extends NodeStyleOverrides {
   title: string;
   subtitle?: string;
   icon: string;
@@ -32,7 +47,7 @@ export interface SystemNodeData {
   [key: string]: unknown;
 }
 
-export interface FlowchartNodeData {
+export interface FlowchartNodeData extends NodeStyleOverrides {
   label: string;
   description?: string;
   shape: 'start-end' | 'process' | 'decision' | 'input-output' | 'document' | 'delay';
@@ -41,7 +56,7 @@ export interface FlowchartNodeData {
   [key: string]: unknown;
 }
 
-export interface ERTableNodeData {
+export interface ERTableNodeData extends NodeStyleOverrides {
   tableName: string;
   columns: ERColumn[];
   headerColor?: 'blue' | 'indigo' | 'emerald' | 'amber' | 'purple' | 'rose' | 'slate';
@@ -49,7 +64,7 @@ export interface ERTableNodeData {
   [key: string]: unknown;
 }
 
-export interface GroupNodeData {
+export interface GroupNodeData extends NodeStyleOverrides {
   label: string;
   stylePreset?: 'slate' | 'blue' | 'emerald' | 'amber' | 'purple' | 'rose';
   bgColor?: string;
@@ -58,7 +73,7 @@ export interface GroupNodeData {
   [key: string]: unknown;
 }
 
-export interface StickyNodeData {
+export interface StickyNodeData extends NodeStyleOverrides {
   title?: string;
   text: string;
   color: 'yellow' | 'blue' | 'green' | 'pink' | 'purple';
@@ -66,7 +81,7 @@ export interface StickyNodeData {
   [key: string]: unknown;
 }
 
-export interface ImageNodeData {
+export interface ImageNodeData extends NodeStyleOverrides {
   src: string;
   alt?: string;
   bgColor?: string;

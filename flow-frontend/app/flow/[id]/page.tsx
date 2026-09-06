@@ -696,6 +696,34 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
     [isAdmin, setNodes]
   );
 
+  // Update a node's geometry (size/position) from the Properties panel's
+  // Layout section — these live on the Node object itself (set by
+  // NodeResizer / canvas dragging), not inside `data` like every other
+  // field onUpdateNodeData touches, hence a separate handler.
+  const handleUpdateNodeGeometry = useCallback(
+    (nodeId: string, geometry: { width?: number; height?: number; x?: number; y?: number }) => {
+      if (!isAdmin) return;
+      isDirtyRef.current = true;
+      setNodes((nds) =>
+        nds.map((node) => {
+          if (node.id !== nodeId) return node;
+          const updated: Node = {
+            ...node,
+            ...(geometry.width !== undefined ? { width: geometry.width } : {}),
+            ...(geometry.height !== undefined ? { height: geometry.height } : {}),
+            position: {
+              x: geometry.x !== undefined ? geometry.x : node.position.x,
+              y: geometry.y !== undefined ? geometry.y : node.position.y,
+            },
+          };
+          setSelectedNode(updated);
+          return updated;
+        })
+      );
+    },
+    [isAdmin, setNodes]
+  );
+
   // Update Edge Data (Admin only)
   const handleUpdateEdgeData = useCallback(
     (edgeId: string, newData: Record<string, any>) => {
@@ -1742,6 +1770,7 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
               nodes={nodes}
               edges={edges}
               onUpdateNodeData={handleUpdateNodeData}
+              onUpdateNodeGeometry={handleUpdateNodeGeometry}
               onUpdateEdgeData={handleUpdateEdgeData}
               onMoveEdgeEndpoint={handleMoveEdgeEndpoint}
               onDuplicateNode={handleDuplicateNode}

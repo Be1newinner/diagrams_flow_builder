@@ -3,6 +3,7 @@
 import React, { memo } from 'react';
 import { NodeProps, Handle, Position, NodeResizer } from '@xyflow/react';
 import { StickyNodeData } from '@/types/diagram';
+import { getNodeStyleOverrides } from '@/lib/nodeStyleOverrides';
 
 const STICKY_COLORS: Record<string, { bg: string; border: string; text: string; header: string }> = {
   yellow: { bg: 'bg-amber-50', border: 'border-amber-200', text: 'text-amber-900', header: 'text-amber-950 font-bold' },
@@ -15,6 +16,7 @@ const STICKY_COLORS: Record<string, { bg: string; border: string; text: string; 
 function StickyNodeComponent({ data, selected }: NodeProps) {
   const nodeData = data as unknown as StickyNodeData;
   const theme = STICKY_COLORS[nodeData.color || 'yellow'] || STICKY_COLORS.yellow;
+  const { wrapperStyle, textStyle } = getNodeStyleOverrides(nodeData);
 
   return (
     <div
@@ -23,7 +25,7 @@ function StickyNodeComponent({ data, selected }: NodeProps) {
       } ${theme.border} ${
         selected ? 'ring-2 ring-amber-400 border-amber-400 shadow-md' : ''
       }`}
-      style={{ backgroundColor: nodeData.bgColor }}
+      style={{ backgroundColor: nodeData.bgColor, ...wrapperStyle }}
     >
       <NodeResizer
         minWidth={160}
@@ -49,7 +51,7 @@ function StickyNodeComponent({ data, selected }: NodeProps) {
         </div>
       )}
 
-      <div className={`text-xs ${theme.text} whitespace-pre-wrap leading-relaxed font-sans`}>
+      <div className={`text-xs ${theme.text} whitespace-pre-wrap leading-relaxed font-sans`} style={textStyle}>
         {nodeData.text || 'Write your architecture note here...'}
       </div>
     </div>
