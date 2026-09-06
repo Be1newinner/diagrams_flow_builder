@@ -31,7 +31,9 @@ function FlowchartNodeComponent({ data, selected }: NodeProps) {
           handleClassName="h-2.5 w-2.5 bg-white border-2 border-amber-500 rounded"
         />
 
-        {/* Handles on the diamond points */}
+        {/* Handles on the diamond points — both a source and target handle
+            per side (see SystemNode.tsx for why one per side isn't enough
+            for any-side edges). */}
         <Handle
           type="target"
           position={Position.Top}
@@ -40,6 +42,18 @@ function FlowchartNodeComponent({ data, selected }: NodeProps) {
         />
         <Handle
           type="source"
+          position={Position.Top}
+          id="top"
+          className="!w-2.5 !h-2.5 !bg-amber-500 !border-2 !border-white"
+        />
+        <Handle
+          type="source"
+          position={Position.Right}
+          id="right"
+          className="!w-2.5 !h-2.5 !bg-amber-500 !border-2 !border-white"
+        />
+        <Handle
+          type="target"
           position={Position.Right}
           id="right"
           className="!w-2.5 !h-2.5 !bg-amber-500 !border-2 !border-white"
@@ -52,6 +66,18 @@ function FlowchartNodeComponent({ data, selected }: NodeProps) {
         />
         <Handle
           type="target"
+          position={Position.Bottom}
+          id="bottom"
+          className="!w-2.5 !h-2.5 !bg-amber-500 !border-2 !border-white"
+        />
+        <Handle
+          type="target"
+          position={Position.Left}
+          id="left"
+          className="!w-2.5 !h-2.5 !bg-amber-500 !border-2 !border-white"
+        />
+        <Handle
+          type="source"
           position={Position.Left}
           id="left"
           className="!w-2.5 !h-2.5 !bg-amber-500 !border-2 !border-white"
@@ -96,9 +122,13 @@ function FlowchartNodeComponent({ data, selected }: NodeProps) {
           handleClassName="h-2.5 w-2.5 bg-white border-2 border-blue-500 rounded"
         />
         <Handle type="target" position={Position.Top} id="top" className="!w-2.5 !h-2.5 !bg-blue-500 !border-2 !border-white" />
+        <Handle type="source" position={Position.Top} id="top" className="!w-2.5 !h-2.5 !bg-blue-500 !border-2 !border-white" />
         <Handle type="source" position={Position.Right} id="right" className="!w-2.5 !h-2.5 !bg-blue-500 !border-2 !border-white" />
+        <Handle type="target" position={Position.Right} id="right" className="!w-2.5 !h-2.5 !bg-blue-500 !border-2 !border-white" />
         <Handle type="source" position={Position.Bottom} id="bottom" className="!w-2.5 !h-2.5 !bg-blue-500 !border-2 !border-white" />
+        <Handle type="target" position={Position.Bottom} id="bottom" className="!w-2.5 !h-2.5 !bg-blue-500 !border-2 !border-white" />
         <Handle type="target" position={Position.Left} id="left" className="!w-2.5 !h-2.5 !bg-blue-500 !border-2 !border-white" />
+        <Handle type="source" position={Position.Left} id="left" className="!w-2.5 !h-2.5 !bg-blue-500 !border-2 !border-white" />
 
         <div className="font-semibold text-xs text-slate-800 truncate">
           {nodeData.label || 'Start / End'}
@@ -123,9 +153,13 @@ function FlowchartNodeComponent({ data, selected }: NodeProps) {
           handleClassName="h-2.5 w-2.5 bg-white border-2 border-cyan-500 rounded"
         />
         <Handle type="target" position={Position.Top} id="top" className="!w-2.5 !h-2.5 !bg-cyan-500 !border-2 !border-white" />
+        <Handle type="source" position={Position.Top} id="top" className="!w-2.5 !h-2.5 !bg-cyan-500 !border-2 !border-white" />
         <Handle type="source" position={Position.Right} id="right" className="!w-2.5 !h-2.5 !bg-cyan-500 !border-2 !border-white" />
+        <Handle type="target" position={Position.Right} id="right" className="!w-2.5 !h-2.5 !bg-cyan-500 !border-2 !border-white" />
         <Handle type="source" position={Position.Bottom} id="bottom" className="!w-2.5 !h-2.5 !bg-cyan-500 !border-2 !border-white" />
+        <Handle type="target" position={Position.Bottom} id="bottom" className="!w-2.5 !h-2.5 !bg-cyan-500 !border-2 !border-white" />
         <Handle type="target" position={Position.Left} id="left" className="!w-2.5 !h-2.5 !bg-cyan-500 !border-2 !border-white" />
+        <Handle type="source" position={Position.Left} id="left" className="!w-2.5 !h-2.5 !bg-cyan-500 !border-2 !border-white" />
 
         <div
           className={`-skew-x-12 w-full h-full flex flex-col items-center justify-center bg-white rounded-md border-2 px-5 py-3 transition-all duration-150 shadow-sm ${
@@ -164,9 +198,13 @@ function FlowchartNodeComponent({ data, selected }: NodeProps) {
         handleClassName="h-2.5 w-2.5 bg-white border-2 border-blue-500 rounded"
       />
       <Handle type="target" position={Position.Top} id="top" className="!w-2.5 !h-2.5 !bg-blue-500 !border-2 !border-white" />
+      <Handle type="source" position={Position.Top} id="top" className="!w-2.5 !h-2.5 !bg-blue-500 !border-2 !border-white" />
       <Handle type="source" position={Position.Right} id="right" className="!w-2.5 !h-2.5 !bg-blue-500 !border-2 !border-white" />
+      <Handle type="target" position={Position.Right} id="right" className="!w-2.5 !h-2.5 !bg-blue-500 !border-2 !border-white" />
       <Handle type="source" position={Position.Bottom} id="bottom" className="!w-2.5 !h-2.5 !bg-blue-500 !border-2 !border-white" />
+      <Handle type="target" position={Position.Bottom} id="bottom" className="!w-2.5 !h-2.5 !bg-blue-500 !border-2 !border-white" />
       <Handle type="target" position={Position.Left} id="left" className="!w-2.5 !h-2.5 !bg-blue-500 !border-2 !border-white" />
+      <Handle type="source" position={Position.Left} id="left" className="!w-2.5 !h-2.5 !bg-blue-500 !border-2 !border-white" />
 
       <div className="font-semibold text-xs text-slate-800 leading-snug">
         {nodeData.label || 'Process Step'}

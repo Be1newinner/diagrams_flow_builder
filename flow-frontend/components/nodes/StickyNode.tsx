@@ -32,10 +32,16 @@ function StickyNodeComponent({ data, selected }: NodeProps) {
         lineClassName="border-amber-400"
         handleClassName="h-2.5 w-2.5 bg-white border-2 border-amber-500 rounded"
       />
+      {/* Both a source and target handle per side — see SystemNode.tsx for
+          why a single handle per side isn't enough for any-side edges. */}
       <Handle type="target" position={Position.Top} id="top" className="!w-2 !h-2 !bg-amber-400 !border !border-white" />
+      <Handle type="source" position={Position.Top} id="top" className="!w-2 !h-2 !bg-amber-400 !border !border-white" />
       <Handle type="source" position={Position.Right} id="right" className="!w-2 !h-2 !bg-amber-400 !border !border-white" />
+      <Handle type="target" position={Position.Right} id="right" className="!w-2 !h-2 !bg-amber-400 !border !border-white" />
       <Handle type="source" position={Position.Bottom} id="bottom" className="!w-2 !h-2 !bg-amber-400 !border !border-white" />
+      <Handle type="target" position={Position.Bottom} id="bottom" className="!w-2 !h-2 !bg-amber-400 !border !border-white" />
       <Handle type="target" position={Position.Left} id="left" className="!w-2 !h-2 !bg-amber-400 !border !border-white" />
+      <Handle type="source" position={Position.Left} id="left" className="!w-2 !h-2 !bg-amber-400 !border !border-white" />
 
       {nodeData.title && (
         <div className={`text-xs ${theme.header} mb-1.5 border-b border-black/5 pb-1`}>

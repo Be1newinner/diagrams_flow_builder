@@ -137,7 +137,16 @@ function SystemNodeComponent({ data, selected }: NodeProps) {
         handleClassName="h-2.5 w-2.5 bg-white border-2 border-blue-500 rounded"
       />
 
-      {/* Handles on 4 sides */}
+      {/* Handles on 4 sides — each side gets BOTH a source and a target
+          handle stacked at the same spot (same id, opposite type). React
+          Flow's loose connectionMode only relaxes the TARGET-side lookup to
+          also search the source bucket (@xyflow/system's getEdgePosition);
+          the SOURCE-side lookup always searches the source bucket only. So
+          an edge whose sourceHandle points at a handle that's only declared
+          type="target" (e.g. "top"/"left" below) fails to resolve a
+          position and never renders. Duplicating each side with both types
+          means any id is always found in whichever bucket a given edge
+          needs, regardless of which side is chosen as source vs target. */}
       <Handle
         type="target"
         position={Position.Top}
@@ -146,6 +155,18 @@ function SystemNodeComponent({ data, selected }: NodeProps) {
       />
       <Handle
         type="source"
+        position={Position.Top}
+        id="top"
+        className="!w-2.5 !h-2.5 !bg-blue-500 !border-2 !border-white"
+      />
+      <Handle
+        type="source"
+        position={Position.Right}
+        id="right"
+        className="!w-2.5 !h-2.5 !bg-blue-500 !border-2 !border-white"
+      />
+      <Handle
+        type="target"
         position={Position.Right}
         id="right"
         className="!w-2.5 !h-2.5 !bg-blue-500 !border-2 !border-white"
@@ -158,6 +179,18 @@ function SystemNodeComponent({ data, selected }: NodeProps) {
       />
       <Handle
         type="target"
+        position={Position.Bottom}
+        id="bottom"
+        className="!w-2.5 !h-2.5 !bg-blue-500 !border-2 !border-white"
+      />
+      <Handle
+        type="target"
+        position={Position.Left}
+        id="left"
+        className="!w-2.5 !h-2.5 !bg-blue-500 !border-2 !border-white"
+      />
+      <Handle
+        type="source"
         position={Position.Left}
         id="left"
         className="!w-2.5 !h-2.5 !bg-blue-500 !border-2 !border-white"

@@ -35,11 +35,18 @@ function ERTableNodeComponent({ data, selected }: NodeProps) {
         handleClassName="h-2.5 w-2.5 bg-white border-2 border-blue-500 rounded"
       />
 
-      {/* General Table Handles */}
+      {/* General Table Handles — both a source and target handle per side,
+          stacked at the same spot, so an edge can use any side regardless
+          of whether it's the source or target end (see SystemNode.tsx for
+          why a single handle per side isn't enough). */}
       <Handle type="target" position={Position.Top} id="top" className="!w-2.5 !h-2.5 !bg-blue-500 !border-2 !border-white" />
+      <Handle type="source" position={Position.Top} id="top" className="!w-2.5 !h-2.5 !bg-blue-500 !border-2 !border-white" />
       <Handle type="source" position={Position.Right} id="right" className="!w-2.5 !h-2.5 !bg-blue-500 !border-2 !border-white" />
+      <Handle type="target" position={Position.Right} id="right" className="!w-2.5 !h-2.5 !bg-blue-500 !border-2 !border-white" />
       <Handle type="source" position={Position.Bottom} id="bottom" className="!w-2.5 !h-2.5 !bg-blue-500 !border-2 !border-white" />
+      <Handle type="target" position={Position.Bottom} id="bottom" className="!w-2.5 !h-2.5 !bg-blue-500 !border-2 !border-white" />
       <Handle type="target" position={Position.Left} id="left" className="!w-2.5 !h-2.5 !bg-blue-500 !border-2 !border-white" />
+      <Handle type="source" position={Position.Left} id="left" className="!w-2.5 !h-2.5 !bg-blue-500 !border-2 !border-white" />
 
       {/* Table Header */}
       <div className={`${headerTheme.bg} ${headerTheme.text} shrink-0 px-3 py-2 flex items-center justify-between`}>
