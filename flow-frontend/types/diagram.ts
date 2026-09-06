@@ -112,6 +112,18 @@ export interface DiagramUserAccess {
   accesstype: DiagramAccessType;
 }
 
+// A single reply under a comment thread. Anyone who can comment on the
+// diagram can add one (unlike the parent comment's text, which is
+// author-only) — each reply carries its own author, so only ITS author (or
+// the diagram ADMIN) can delete it.
+export interface CommentReply {
+  id: string;
+  text: string;
+  authorId: string;
+  authorName: string;
+  createdAt: string;
+}
+
 // A pin dropped anywhere on the canvas, independent of the node/edge graph
 // — never selectable as a node, never touched by node/edge CRUD, and never
 // counted in nodeCount/edgeCount. Only `authorId` may edit `text`/colors;
@@ -127,6 +139,14 @@ export interface DiagramComment {
   updatedAt: string;
   bgColor?: string;
   borderColor?: string;
+  resolved?: boolean;
+  replies?: CommentReply[];
+  // userIds this comment's text currently @-mentions (by matching against
+  // diagram.users' display names). Server-managed: on every save, the diff
+  // against the previous version's mentionedUserIds is what actually
+  // triggers a notification email, so re-saving an unchanged comment never
+  // re-sends one. See notifyNewMentions in lib/serverStorage.ts.
+  mentionedUserIds?: string[];
 }
 
 export interface Diagram {

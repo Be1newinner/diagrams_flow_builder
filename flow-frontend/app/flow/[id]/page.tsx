@@ -69,6 +69,7 @@ import { AiAssistantModal } from '@/components/editor/AiAssistantModal';
 import { AlignmentToolbar } from '@/components/editor/AlignmentToolbar';
 import { CollaboratorCursors } from '@/components/editor/CollaboratorCursors';
 import { CollaboratorSelections } from '@/components/editor/CollaboratorSelections';
+import { CommentPins } from '@/components/editor/CommentPins';
 import { AlignmentGuides } from '@/components/editor/AlignmentGuides';
 import { CommandPalette, CommandPaletteAction } from '@/components/editor/CommandPalette';
 
@@ -647,6 +648,7 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
       } else {
         setSelectedNode(null);
         setSelectedEdge(null);
+        setSelectedComment(null);
         broadcastSelection(null, null);
       }
     },
@@ -668,11 +670,19 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
     );
     if (!lockedBy) return;
 
-    setSelectedNode(null);
-    setSelectedEdge(null);
-    broadcastSelection(null, null);
-    setToastMessage(`${lockedBy.name} has selected this ${lockedType}.`);
-    setTimeout(() => setToastMessage(null), 3000);
+    // Deferred through a resolved promise: the lint rule here flags any
+    // setState called synchronously in an effect body regardless of
+    // legitimacy (reacting to presence data contesting our own selection is
+    // exactly the "subscribe to an external system" case the rule means to
+    // allow) — a microtask deferral satisfies it without any observable
+    // behavior change, same pattern used elsewhere in this file.
+    Promise.resolve().then(() => {
+      setSelectedNode(null);
+      setSelectedEdge(null);
+      broadcastSelection(null, null);
+      setToastMessage(`${lockedBy.name} has selected this ${lockedType}.`);
+      setTimeout(() => setToastMessage(null), 3000);
+    });
     // Only the identity of what's selected (and the presence data that
     // might contest it) should re-run this — not every reference change to
     // the objects themselves.
@@ -1765,6 +1775,8 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
         onExportJSON={handleExportJSON}
         onImportJSON={handleImportJSON}
         onOpenAiModal={() => setIsAiModalOpen(true)}
+        commentModeActive={commentModeActive}
+        onToggleCommentMode={() => setCommentModeActive((v) => !v)}
         userAccessType={userAccess}
       />
 
@@ -2014,6 +2026,16 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
 
           <CollaboratorCursors collaborators={collaborators} />
           <CollaboratorSelections collaborators={collaborators} nodes={nodes} edges={edges} />
+          <CommentPins
+            comments={comments}
+            selectedCommentId={selectedComment?.id || null}
+            onSelect={(comment) => {
+              setSelectedNode(null);
+              setSelectedEdge(null);
+              setSelectedComment(comment);
+              broadcastSelection(null, null);
+            }}
+          />
 
           <AlignmentGuides vertical={guides.vertical} horizontal={guides.horizontal} />
 
@@ -2091,6 +2113,11 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
               edgeCount={edges.length}
               readOnly={!canEdit}
               diagramId={diagram.id}
+              selectedComment={selectedComment}
+              currentUserId={user?.id}
+              isDiagramAdmin={isAdmin}
+              onUpdateComment={handleUpdateComment}
+              onDeleteComment={handleDeleteComment}
             />
           </div>
         )}

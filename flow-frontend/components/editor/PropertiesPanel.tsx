@@ -35,6 +35,7 @@ import {
   AlignCenter,
   AlignRight,
   Droplet,
+  MessageCircle,
 } from 'lucide-react';
 import {
   SystemNodeData,
@@ -44,6 +45,7 @@ import {
   StickyNodeData,
   CustomEdgeData,
   ERColumn,
+  DiagramComment,
 } from '@/types/diagram';
 
 interface PropertiesPanelProps {
@@ -75,6 +77,11 @@ interface PropertiesPanelProps {
   edgeCount: number;
   readOnly?: boolean;
   diagramId?: string;
+  selectedComment: DiagramComment | null;
+  currentUserId?: string;
+  isDiagramAdmin?: boolean;
+  onUpdateComment: (id: string, patch: Partial<Pick<DiagramComment, 'text' | 'bgColor' | 'borderColor'>>) => void;
+  onDeleteComment: (id: string) => void;
 }
 
 // Best-effort human label across every node type's differently-shaped data.
@@ -182,6 +189,11 @@ export function PropertiesPanel({
   edgeCount,
   readOnly = false,
   diagramId,
+  selectedComment,
+  currentUserId,
+  isDiagramAdmin,
+  onUpdateComment,
+  onDeleteComment,
 }: PropertiesPanelProps) {
   const [activeTab, setActiveTab] = useState<'properties' | 'layers' | 'activity'>('properties');
 
@@ -1007,6 +1019,91 @@ export function PropertiesPanel({
             onMove={(end, side) => onMoveEdgeEndpoint(selectedEdge.id, end, side)}
           />
         </fieldset>
+      </aside>
+    );
+  }
+
+  // Case 2b: Comment Selected — text and style (background/outline) are
+  // editable only by whoever wrote it; everyone else with view access sees
+  // who wrote it, when, and the text, read-only. Deleting is author-or-ADMIN
+  // (moderation), enforced again server-side in onDeleteComment itself —
+  // this only ever hides a button someone couldn't use anyway.
+  if (selectedComment) {
+    const isAuthor = !!currentUserId && currentUserId === selectedComment.authorId;
+    const canDelete = isAuthor || !!isDiagramAdmin;
+
+    return (
+      <aside className="w-full h-full bg-white border-l border-slate-200 flex flex-col select-none z-20 shadow-2xs">
+        {tabBar}
+        <div className="p-3.5 border-b border-slate-100 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <MessageCircle className="w-4 h-4 text-blue-600" />
+            <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">Comment</h3>
+          </div>
+          {canDelete && (
+            <button
+              onClick={() => onDeleteComment(selectedComment.id)}
+              className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+              title="Delete comment"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4 space-y-4 text-xs">
+          <div className="flex items-center gap-2">
+            <div className="w-7 h-7 rounded-full bg-slate-200 flex items-center justify-center text-[11px] font-bold text-slate-700 shrink-0">
+              {selectedComment.authorName.charAt(0).toUpperCase()}
+            </div>
+            <div className="min-w-0">
+              <div className="font-semibold text-slate-800 truncate">{selectedComment.authorName}</div>
+              <div className="text-[10px] text-slate-400">
+                {new Date(selectedComment.createdAt).toLocaleString()}
+              </div>
+            </div>
+          </div>
+
+          {isAuthor ? (
+            <>
+              <div>
+                <label className="font-semibold text-slate-700 block mb-1">Text</label>
+                <textarea
+                  value={selectedComment.text}
+                  onChange={(e) => onUpdateComment(selectedComment.id, { text: e.target.value })}
+                  rows={4}
+                  placeholder="Write a comment..."
+                  className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:border-blue-500 resize-none"
+                />
+              </div>
+              <BackgroundColorControl
+                label="Background Color"
+                value={selectedComment.bgColor}
+                onChange={(hex) => onUpdateComment(selectedComment.id, { bgColor: hex })}
+              />
+              <BackgroundColorControl
+                label="Outline Color"
+                value={selectedComment.borderColor}
+                onChange={(hex) => onUpdateComment(selectedComment.id, { borderColor: hex })}
+              />
+            </>
+          ) : (
+            <div
+              className="p-3 rounded-lg border"
+              style={{
+                backgroundColor: selectedComment.bgColor || '#f8fafc',
+                borderColor: selectedComment.borderColor || '#e2e8f0',
+              }}
+            >
+              <p className="text-slate-700 whitespace-pre-wrap leading-relaxed">
+                {selectedComment.text || <span className="italic text-slate-400">No text yet.</span>}
+              </p>
+              <p className="text-[10px] text-slate-400 mt-2 italic">
+                Only {selectedComment.authorName} can edit this comment.
+              </p>
+            </div>
+          )}
+        </div>
       </aside>
     );
   }

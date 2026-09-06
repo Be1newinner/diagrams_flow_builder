@@ -98,6 +98,8 @@ export function EditorHeader({
   onExportJSON,
   onImportJSON,
   onOpenAiModal,
+  commentModeActive,
+  onToggleCommentMode,
   userAccessType,
 }: EditorHeaderProps) {
   const { user, openLoginModal, logout } = useAuth();
