@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { Diagram, DiagramUserAccess, DiagramComment } from '@/types/diagram';
+import { Folder, FolderColor } from '@/types/folder';
 import { STARTER_TEMPLATES } from './templates';
 import clientPromise from './mongodb';
 import { publishDiagramUpdate } from './ably';
@@ -20,6 +21,7 @@ import { formatRelativeTime } from './timeFormat';
 
 const DATA_DIR = path.resolve(process.cwd(), '../data');
 const DATA_FILE = path.join(DATA_DIR, 'diagrams.json');
+const FOLDERS_FILE = path.join(DATA_DIR, 'folders.json');
 
 // --- File Fallback Helpers ---
 function getFileDiagrams(): Diagram[] {
@@ -622,4 +624,192 @@ export async function restoreDiagramSnapshot(
     checkpoint: true,
     description: `restored to version from ${formatRelativeTime(entry.timestamp)}`,
   });
+}
+
+// --- Folders ---
+// Purely organizational grouping of a user's own diagrams, kept in its own
+// collection/file rather than embedded in the diagrams list — a diagram only
+// stores the `folderId` it belongs to (see types/diagram.ts). No access
+// control layer of its own: folders are never shared, and deleting one just
+// unsets folderId on whatever diagrams pointed at it (never deletes them).
+
+function getFileFolders(): Folder[] {
+  try {
+    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+    if (!fs.existsSync(FOLDERS_FILE)) {
+      fs.writeFileSync(FOLDERS_FILE, JSON.stringify([], null, 2), 'utf-8');
+      return [];
+    }
+    const raw = fs.readFileSync(FOLDERS_FILE, 'utf-8');
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeFileFolders(list: Folder[]): void {
+  try {
+    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.writeFileSync(FOLDERS_FILE, JSON.stringify(list, null, 2), 'utf-8');
+  } catch (err) {
+    console.error('File fallback save error (folders):', err);
+  }
+}
+
+async function unsetFolderOnDiagrams(folderId: string, userId: string): Promise<void> {
+  if (process.env.MONGODB_URI) {
+    try {
+      const client = await clientPromise;
+      const db = client.db('flowcraft');
+      await db
+        .collection('diagrams')
+        .updateMany({ folderId, userId }, { $unset: { folderId: '' } });
+    } catch (err) {
+      console.error('[MongoDB Error] unsetFolderOnDiagrams error:', err);
+    }
+  }
+
+  const diagrams = getFileDiagrams();
+  let changed = false;
+  const next = diagrams.map((d) => {
+    if (d.folderId === folderId && d.userId === userId) {
+      changed = true;
+      const { folderId: _drop, ...rest } = d;
+      return rest as Diagram;
+    }
+    return d;
+  });
+  if (changed) {
+    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.writeFileSync(DATA_FILE, JSON.stringify(next, null, 2), 'utf-8');
+  }
+  invalidateDiagramListCache(userId);
+}
+
+export async function getServerFolders(userId: string): Promise<Folder[]> {
+  if (process.env.MONGODB_URI) {
+    try {
+      const client = await clientPromise;
+      const db = client.db('flowcraft');
+      const docs = await db
+        .collection<Folder>('folders')
+        .find({ userId })
+        .sort({ name: 1 })
+        .toArray();
+      return docs.map(({ _id, ...rest }: any) => rest as Folder);
+    } catch (err) {
+      console.error('[MongoDB Error] getServerFolders fallback:', err);
+    }
+  }
+
+  return getFileFolders()
+    .filter((f) => f.userId === userId)
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export const MAX_FOLDERS_PER_USER = 50;
+
+export async function createServerFolder(
+  userId: string,
+  name: string,
+  color?: FolderColor
+): Promise<Folder> {
+  const trimmed = name.trim();
+  if (!trimmed) throw new Error('Folder name is required.');
+
+  const existingFolders = await getServerFolders(userId);
+  if (existingFolders.length >= MAX_FOLDERS_PER_USER) {
+    throw new Error(`Folder limit reached (${MAX_FOLDERS_PER_USER}).`);
+  }
+  if (existingFolders.some((f) => f.name.toLowerCase() === trimmed.toLowerCase())) {
+    throw new Error(`A folder named "${trimmed}" already exists.`);
+  }
+
+  const now = new Date().toISOString();
+  const folder: Folder = {
+    id: `folder_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+    name: trimmed,
+    color,
+    userId,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  if (process.env.MONGODB_URI) {
+    try {
+      const client = await clientPromise;
+      const db = client.db('flowcraft');
+      await db.collection('folders').insertOne(folder as any);
+    } catch (err) {
+      console.error('[MongoDB Error] createServerFolder error:', err);
+    }
+  }
+
+  const list = getFileFolders();
+  writeFileFolders([folder, ...list]);
+  return folder;
+}
+
+export async function renameServerFolder(
+  id: string,
+  userId: string,
+  updates: { name?: string; color?: FolderColor }
+): Promise<Folder> {
+  const folders = await getServerFolders(userId);
+  const existing = folders.find((f) => f.id === id);
+  if (!existing) throw new Error('Folder not found or access denied.');
+
+  const trimmedName = updates.name?.trim();
+  if (trimmedName && folders.some((f) => f.id !== id && f.name.toLowerCase() === trimmedName.toLowerCase())) {
+    throw new Error(`A folder named "${trimmedName}" already exists.`);
+  }
+
+  const updated: Folder = {
+    ...existing,
+    name: trimmedName || existing.name,
+    color: updates.color ?? existing.color,
+    updatedAt: new Date().toISOString(),
+  };
+
+  if (process.env.MONGODB_URI) {
+    try {
+      const client = await clientPromise;
+      const db = client.db('flowcraft');
+      await db.collection('folders').updateOne({ id, userId }, { $set: updated });
+    } catch (err) {
+      console.error('[MongoDB Error] renameServerFolder error:', err);
+    }
+  }
+
+  const list = getFileFolders();
+  writeFileFolders(list.map((f) => (f.id === id ? updated : f)));
+  return updated;
+}
+
+export async function deleteServerFolder(id: string, userId: string): Promise<boolean> {
+  const folders = await getServerFolders(userId);
+  const existing = folders.find((f) => f.id === id);
+  if (!existing) return false;
+
+  let deletedFromMongo = false;
+  if (process.env.MONGODB_URI) {
+    try {
+      const client = await clientPromise;
+      const db = client.db('flowcraft');
+      const res = await db.collection('folders').deleteOne({ id, userId });
+      deletedFromMongo = res.deletedCount > 0;
+    } catch (err) {
+      console.error('[MongoDB Error] deleteServerFolder error:', err);
+    }
+  }
+
+  const list = getFileFolders();
+  const filtered = list.filter((f) => f.id !== id);
+  const deletedFromFile = filtered.length < list.length;
+  writeFileFolders(filtered);
+
+  await unsetFolderOnDiagrams(id, userId);
+
+  return deletedFromMongo || deletedFromFile;
 }

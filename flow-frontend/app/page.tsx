@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { Diagram, DiagramCategory } from '@/types/diagram';
+import { Folder } from '@/types/folder';
 import {
   getDiagrams,
   createDiagram,
@@ -23,17 +24,25 @@ import {
   deleteDiagram,
   exportDiagramJSON,
   importDiagramJSON,
+  getFolders,
+  createFolder,
+  renameFolder,
+  deleteFolder,
+  moveDiagramToFolder,
 } from '@/lib/storage';
 import { DashboardHeader } from '@/components/dashboard/DashboardHeader';
 import { DiagramCard } from '@/components/dashboard/DiagramCard';
 import { CreateFlowModal } from '@/components/dashboard/CreateFlowModal';
 import { DeleteConfirmModal } from '@/components/dashboard/DeleteConfirmModal';
+import { FolderSidebar, UNFILED_ID } from '@/components/dashboard/FolderSidebar';
 import { CommandPalette } from '@/components/editor/CommandPalette';
 
 export default function DashboardPage() {
   const router = useRouter();
   const { user, openLoginModal } = useAuth();
   const [diagrams, setDiagrams] = useState<Diagram[]>([]);
+  const [folders, setFolders] = useState<Folder[]>([]);
+  const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
   const [isLoaded, setIsLoaded] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
@@ -50,8 +59,9 @@ export default function DashboardPage() {
   };
 
   const loadData = useCallback(async () => {
-    const list = await getDiagrams(user?.id);
+    const [list, folderList] = await Promise.all([getDiagrams(user?.id), getFolders(user?.id)]);
     setDiagrams(list);
+    setFolders(folderList);
     setIsLoaded(true);
   }, [user?.id]);
 
@@ -69,6 +79,22 @@ export default function DashboardPage() {
     };
   }, [diagrams]);
 
+  // Folder counts (only ever meaningful for the user's own diagrams, since
+  // folders themselves are per-user — no need to exclude templates here as
+  // templates never carry a folderId).
+  const countsByFolder = useMemo(() => {
+    const map: Record<string, number> = {};
+    diagrams.forEach((d) => {
+      if (d.folderId) map[d.folderId] = (map[d.folderId] || 0) + 1;
+    });
+    return map;
+  }, [diagrams]);
+
+  const unfiledCount = useMemo(
+    () => diagrams.filter((d) => !d.folderId).length,
+    [diagrams]
+  );
+
   // Filtered diagrams
   const filteredDiagrams = useMemo(() => {
     return diagrams.filter((diagram) => {
@@ -79,10 +105,13 @@ export default function DashboardPage() {
         diagram.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
         diagram.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
         diagram.tags?.some((t) => t.toLowerCase().includes(searchQuery.toLowerCase()));
+      const matchesFolder =
+        selectedFolderId === null ||
+        (selectedFolderId === UNFILED_ID ? !diagram.folderId : diagram.folderId === selectedFolderId);
 
-      return matchesCategory && matchesSearch;
+      return matchesCategory && matchesSearch && matchesFolder;
     });
-  }, [diagrams, selectedCategory, searchQuery]);
+  }, [diagrams, selectedCategory, searchQuery, selectedFolderId]);
 
   // Count user-owned diagrams (excluding sample templates)
   const userOwnedCount = useMemo(() => {
@@ -202,6 +231,61 @@ export default function DashboardPage() {
     }
   };
 
+  const handleCreateFolder = async (name: string) => {
+    if (!user) {
+      openLoginModal();
+      return;
+    }
+    const folder = await createFolder(name);
+    if (folder) {
+      await loadData();
+      showToast(`Created folder "${folder.name}"`);
+    } else {
+      showToast('Failed to create folder');
+    }
+  };
+
+  const handleRenameFolder = async (id: string, name: string) => {
+    const folder = await renameFolder(id, name);
+    if (folder) {
+      await loadData();
+      showToast(`Renamed folder to "${folder.name}"`);
+    } else {
+      showToast('Failed to rename folder');
+    }
+  };
+
+  const handleDeleteFolder = async (folder: Folder) => {
+    const diagramCount = countsByFolder[folder.id] || 0;
+    const confirmed = window.confirm(
+      diagramCount > 0
+        ? `Delete folder "${folder.name}"? Its ${diagramCount} diagram${diagramCount === 1 ? '' : 's'} will become unfiled, not deleted.`
+        : `Delete folder "${folder.name}"?`
+    );
+    if (!confirmed) return;
+
+    const ok = await deleteFolder(folder.id);
+    if (ok) {
+      if (selectedFolderId === folder.id) setSelectedFolderId(null);
+      await loadData();
+      showToast(`Deleted folder "${folder.name}"`);
+    } else {
+      showToast('Failed to delete folder');
+    }
+  };
+
+  const handleMoveToFolder = async (diagramId: string, folderId: string | null) => {
+    const diagram = diagrams.find((d) => d.id === diagramId);
+    if (!diagram) return;
+    const result = await moveDiagramToFolder(diagramId, folderId, diagram.updatedAt);
+    if (result.status === 'ok' || result.status === 'created') {
+      await loadData();
+      showToast(folderId ? 'Moved to folder' : 'Removed from folder');
+    } else {
+      showToast('Failed to move diagram');
+    }
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col">
       {/* Toast Notification */}
@@ -269,61 +353,83 @@ export default function DashboardPage() {
           </button>
         </div>
 
-        {/* Diagram Cards Grid / List */}
-        {filteredDiagrams.length > 0 ? (
-          <div
-            className={
-              viewMode === 'grid'
-                ? 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6'
-                : 'space-y-3'
-            }
-          >
-            {filteredDiagrams.map((diagram) => (
-              <DiagramCard
-                key={diagram.id}
-                diagram={diagram}
-                viewMode={viewMode}
-                onDuplicate={handleDuplicate}
-                onExport={handleExportJSON}
-                onDelete={setDiagramToDelete}
-                currentUserId={user?.id}
-              />
-            ))}
-          </div>
-        ) : (
-          /* Empty State */
-          <div className="text-center py-16 bg-white dark:bg-slate-900 border border-dashed border-slate-300 dark:border-slate-700 rounded-2xl p-8">
-            <div className="w-12 h-12 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 flex items-center justify-center mx-auto mb-3">
-              <Search className="w-6 h-6" />
-            </div>
-            <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100">No diagrams found</h3>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-sm mx-auto">
-              {searchQuery
-                ? `No diagrams matched "${searchQuery}". Try a different keyword or clear your filter.`
-                : 'Get started by creating your very first diagram flow.'}
-            </p>
-            <div className="mt-5 flex items-center justify-center gap-2.5">
-              {searchQuery && (
-                <button
-                  onClick={() => {
-                    setSearchQuery('');
-                    setSelectedCategory('all');
-                  }}
-                  className="px-3 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 transition-colors"
-                >
-                  Clear Filters
-                </button>
-              )}
-              <button
-                onClick={() => setCreateModalOpen(true)}
-                className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-xs"
+        {/* Sidebar + Diagram Cards */}
+        <div className="flex flex-col lg:flex-row gap-6">
+          <FolderSidebar
+            folders={folders}
+            selectedFolderId={selectedFolderId}
+            onSelectFolder={setSelectedFolderId}
+            onCreateFolder={handleCreateFolder}
+            onRenameFolder={handleRenameFolder}
+            onDeleteFolder={handleDeleteFolder}
+            countsByFolder={countsByFolder}
+            unfiledCount={unfiledCount}
+            totalCount={diagrams.length}
+            canManageFolders={!!user}
+          />
+
+          <div className="flex-1 min-w-0">
+            {filteredDiagrams.length > 0 ? (
+              <div
+                className={
+                  viewMode === 'grid'
+                    ? 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6'
+                    : 'space-y-3'
+                }
               >
-                <Plus className="w-3.5 h-3.5" />
-                <span>Create New Diagram</span>
-              </button>
-            </div>
+                {filteredDiagrams.map((diagram) => (
+                  <DiagramCard
+                    key={diagram.id}
+                    diagram={diagram}
+                    viewMode={viewMode}
+                    onDuplicate={handleDuplicate}
+                    onExport={handleExportJSON}
+                    onDelete={setDiagramToDelete}
+                    currentUserId={user?.id}
+                    folders={folders}
+                    onMoveToFolder={handleMoveToFolder}
+                  />
+                ))}
+              </div>
+            ) : (
+              /* Empty State */
+              <div className="text-center py-16 bg-white dark:bg-slate-900 border border-dashed border-slate-300 dark:border-slate-700 rounded-2xl p-8">
+                <div className="w-12 h-12 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 flex items-center justify-center mx-auto mb-3">
+                  <Search className="w-6 h-6" />
+                </div>
+                <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100">No diagrams found</h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-sm mx-auto">
+                  {searchQuery
+                    ? `No diagrams matched "${searchQuery}". Try a different keyword or clear your filter.`
+                    : selectedFolderId
+                    ? 'No diagrams in this folder yet. Move one here from its card menu.'
+                    : 'Get started by creating your very first diagram flow.'}
+                </p>
+                <div className="mt-5 flex items-center justify-center gap-2.5">
+                  {(searchQuery || selectedFolderId) && (
+                    <button
+                      onClick={() => {
+                        setSearchQuery('');
+                        setSelectedCategory('all');
+                        setSelectedFolderId(null);
+                      }}
+                      className="px-3 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 transition-colors"
+                    >
+                      Clear Filters
+                    </button>
+                  )}
+                  <button
+                    onClick={() => setCreateModalOpen(true)}
+                    className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-xs"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Create New Diagram</span>
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
-        )}
+        </div>
       </main>
 
       {/* Dashboard Footer */}

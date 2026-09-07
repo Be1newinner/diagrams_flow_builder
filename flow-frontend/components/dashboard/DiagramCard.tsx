@@ -15,8 +15,12 @@ import {
   Clock,
   Shapes,
   ArrowRight,
+  FolderInput,
+  Folder as FolderIcon,
+  Check,
 } from 'lucide-react';
 import { Diagram } from '@/types/diagram';
+import { Folder } from '@/types/folder';
 
 interface DiagramCardProps {
   diagram: Diagram;
@@ -25,6 +29,8 @@ interface DiagramCardProps {
   onExport: (id: string) => void;
   onDelete: (diagram: Diagram) => void;
   currentUserId?: string;
+  folders?: Folder[];
+  onMoveToFolder?: (diagramId: string, folderId: string | null) => void;
 }
 
 const CATEGORY_CONFIG: Record<
@@ -92,8 +98,11 @@ export function DiagramCard({
   onExport,
   onDelete,
   currentUserId,
+  folders = [],
+  onMoveToFolder,
 }: DiagramCardProps) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [moveMenuOpen, setMoveMenuOpen] = useState(false);
   const config = CATEGORY_CONFIG[diagram.category] || CATEGORY_CONFIG.general;
   const nodeCount = diagram.nodes?.length || 0;
   const edgeCount = diagram.edges?.length || 0;
@@ -202,6 +211,54 @@ export function DiagramCard({
                 <Download className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
                 <span>Export JSON</span>
               </button>
+
+              {!diagram.isTemplate && !diagram.id.startsWith('template-') && onMoveToFolder && (isAdmin || isEditor) && (
+                <div className="relative" onMouseEnter={() => setMoveMenuOpen(true)} onMouseLeave={() => setMoveMenuOpen(false)}>
+                  <button className="w-full text-left px-3 py-1.5 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 cursor-pointer">
+                    <FolderInput className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
+                    <span>Move to Folder</span>
+                  </button>
+                  {moveMenuOpen && (
+                    <div className="absolute left-full top-0 -ml-1 w-44 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg py-1 z-30 max-h-56 overflow-y-auto">
+                      <button
+                        onClick={() => {
+                          setMenuOpen(false);
+                          setMoveMenuOpen(false);
+                          onMoveToFolder(diagram.id, null);
+                        }}
+                        className="w-full text-left px-3 py-1.5 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 cursor-pointer"
+                      >
+                        {!diagram.folderId && <Check className="w-3 h-3 text-blue-600 shrink-0" />}
+                        <span className={!diagram.folderId ? 'font-semibold' : ''}>Unfiled</span>
+                      </button>
+                      {folders.length === 0 ? (
+                        <div className="px-3 py-1.5 text-[10px] text-slate-400 dark:text-slate-500 italic">
+                          No folders yet
+                        </div>
+                      ) : (
+                        folders.map((f) => (
+                          <button
+                            key={f.id}
+                            onClick={() => {
+                              setMenuOpen(false);
+                              setMoveMenuOpen(false);
+                              onMoveToFolder(diagram.id, f.id);
+                            }}
+                            className="w-full text-left px-3 py-1.5 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 cursor-pointer"
+                          >
+                            {diagram.folderId === f.id ? (
+                              <Check className="w-3 h-3 text-blue-600 shrink-0" />
+                            ) : (
+                              <FolderIcon className="w-3 h-3 text-slate-400 shrink-0" />
+                            )}
+                            <span className={`truncate ${diagram.folderId === f.id ? 'font-semibold' : ''}`}>{f.name}</span>
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {!diagram.isTemplate && !diagram.id.startsWith('template-') ? (
                 isAdmin ? (
@@ -362,6 +419,55 @@ export function DiagramCard({
                     <Download className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
                     <span>Export JSON</span>
                   </button>
+
+                  {!diagram.isTemplate && !diagram.id.startsWith('template-') && onMoveToFolder && (isAdmin || isEditor) && (
+                    <div className="relative" onMouseEnter={() => setMoveMenuOpen(true)} onMouseLeave={() => setMoveMenuOpen(false)}>
+                      <button className="w-full text-left px-3 py-1.5 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 cursor-pointer">
+                        <FolderInput className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
+                        <span>Move to Folder</span>
+                      </button>
+                      {moveMenuOpen && (
+                        <div className="absolute left-full top-0 -ml-1 w-44 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg py-1 z-30 max-h-56 overflow-y-auto">
+                          <button
+                            onClick={() => {
+                              setMenuOpen(false);
+                              setMoveMenuOpen(false);
+                              onMoveToFolder(diagram.id, null);
+                            }}
+                            className="w-full text-left px-3 py-1.5 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 cursor-pointer"
+                          >
+                            {!diagram.folderId && <Check className="w-3 h-3 text-blue-600 shrink-0" />}
+                            <span className={!diagram.folderId ? 'font-semibold' : ''}>Unfiled</span>
+                          </button>
+                          {folders.length === 0 ? (
+                            <div className="px-3 py-1.5 text-[10px] text-slate-400 dark:text-slate-500 italic">
+                              No folders yet
+                            </div>
+                          ) : (
+                            folders.map((f) => (
+                              <button
+                                key={f.id}
+                                onClick={() => {
+                                  setMenuOpen(false);
+                                  setMoveMenuOpen(false);
+                                  onMoveToFolder(diagram.id, f.id);
+                                }}
+                                className="w-full text-left px-3 py-1.5 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 cursor-pointer"
+                              >
+                                {diagram.folderId === f.id ? (
+                                  <Check className="w-3 h-3 text-blue-600 shrink-0" />
+                                ) : (
+                                  <FolderIcon className="w-3 h-3 text-slate-400 shrink-0" />
+                                )}
+                                <span className={`truncate ${diagram.folderId === f.id ? 'font-semibold' : ''}`}>{f.name}</span>
+                              </button>
+                            ))
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   {!diagram.isTemplate && !diagram.id.startsWith('template-') ? (
                     isAdmin ? (
                       <>

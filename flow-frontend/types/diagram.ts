@@ -165,4 +165,5 @@ export interface Diagram {
   isTemplate?: boolean; // true for built-in sample templates
   users?: DiagramUserAccess[]; // Access control list: exactly one ADMIN, multiple EDITOR/VIEWER
   isPublic?: boolean;   // true = every signed-in user can view (never edit) this diagram
+  folderId?: string | null; // Dashboard organization only — id of a Folder (see types/folder.ts). Unset/null = "Unfiled".
 }

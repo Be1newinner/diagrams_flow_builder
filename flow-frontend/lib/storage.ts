@@ -1,4 +1,5 @@
 import { Diagram, DiagramCategory } from '@/types/diagram';
+import { Folder, FolderColor } from '@/types/folder';
 import { STARTER_TEMPLATES } from './templates';
 
 // This module used to keep a client-side localStorage cache of diagrams,
@@ -278,4 +279,63 @@ export async function importDiagramJSON(jsonString: string, userId?: string | nu
   });
   if (!ok || !data) throw new Error('Failed to import diagram');
   return data;
+}
+
+// --- Folders (dashboard organization) ---
+
+export async function getFolders(userId?: string | null): Promise<Folder[]> {
+  if (!userId) return [];
+  const { ok, data } = await apiFetch<Folder[]>('/api/folders');
+  return ok && Array.isArray(data) ? data : [];
+}
+
+export async function createFolder(name: string, color?: FolderColor): Promise<Folder | null> {
+  const { ok, data } = await apiFetch<Folder>('/api/folders', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, color }),
+  });
+  return ok ? data : null;
+}
+
+export async function renameFolder(id: string, name: string): Promise<Folder | null> {
+  const { ok, data } = await apiFetch<Folder>(`/api/folders/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+  return ok ? data : null;
+}
+
+export async function deleteFolder(id: string): Promise<boolean> {
+  const { ok } = await apiFetch(`/api/folders/${id}`, { method: 'DELETE' });
+  return ok;
+}
+
+// Moves a diagram in/out of a folder. Sends only `folderId`, so the server's
+// PUT handler treats it as a normal (non-comment-only) edit requiring
+// EDITOR/ADMIN access — same permission bar as any other content change.
+export async function moveDiagramToFolder(
+  diagramId: string,
+  folderId: string | null,
+  baseVersion: string
+): Promise<SaveResult> {
+  return fetch(`/api/diagrams/${diagramId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ folderId: folderId ?? null, baseVersion, checkpoint: false }),
+  })
+    .then(async (res): Promise<SaveResult> => {
+      if (res.status === 409) {
+        const body = await res.json().catch(() => null);
+        const latest = body?.latest as Diagram | undefined;
+        return latest ? { status: 'conflict', latest } : { status: 'error' };
+      }
+      if (res.ok) {
+        const saved = await res.json();
+        return { status: 'ok', diagram: saved };
+      }
+      return { status: 'error' };
+    })
+    .catch((): SaveResult => ({ status: 'error' }));
 }
