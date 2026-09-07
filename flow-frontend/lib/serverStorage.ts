@@ -160,6 +160,21 @@ async function processCommentMentions(
 
 // --- Main Exported Functions (MongoDB with File Fallback & User Access Control) ---
 
+// Built-in sample templates always sort after real diagrams; within each
+// group, most-recently-updated first.
+function isSampleDiagram(d: Diagram): boolean {
+  return Boolean(d.isTemplate) || d.id.startsWith('template-');
+}
+
+function sortDiagramsSamplesLast(a: Diagram, b: Diagram): number {
+  const aSample = isSampleDiagram(a);
+  const bSample = isSampleDiagram(b);
+  if (aSample !== bSample) {
+    return aSample ? 1 : -1;
+  }
+  return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+}
+
 export async function getServerDiagrams(userId?: string | null): Promise<Diagram[]> {
   // If user is not logged in, return ONLY the 3 starter sample templates
   if (!userId) {
@@ -205,9 +220,7 @@ export async function getServerDiagrams(userId?: string | null): Promise<Diagram
       const existingIds = new Set(userDocs.map((d) => d.id));
       const missingTemplates = STARTER_TEMPLATES.filter((t) => !existingIds.has(t.id));
 
-      const result = [...userDocs, ...missingTemplates].sort(
-        (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
-      );
+      const result = [...userDocs, ...missingTemplates].sort(sortDiagramsSamplesLast);
       setCachedDiagramList(userId, result);
       return result;
     } catch (err) {
@@ -231,7 +244,7 @@ export async function getServerDiagrams(userId?: string | null): Promise<Diagram
       }
       return d;
     })
-    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+    .sort(sortDiagramsSamplesLast);
   setCachedDiagramList(userId, result);
   return result;
 }

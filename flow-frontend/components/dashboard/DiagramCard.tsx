@@ -130,6 +130,10 @@ export function DiagramCard({
   const canMove =
     !diagram.isTemplate && !diagram.id.startsWith('template-') && !!onMoveToFolder && (isAdmin || isEditor);
 
+  const folderName = diagram.folderId
+    ? folders.find((f) => f.id === diagram.folderId)?.name
+    : undefined;
+
   const dragProps = canMove
     ? {
         draggable: true,
@@ -173,6 +177,12 @@ export function DiagramCard({
             {diagram.description && (
               <p className="text-xs text-slate-500 dark:text-slate-400 truncate mt-0.5 max-w-xl">
                 {diagram.description}
+              </p>
+            )}
+            {folderName && (
+              <p className="flex items-center gap-1 text-[11px] text-slate-400 dark:text-slate-500 mt-0.5">
+                <FolderIcon className="w-3 h-3 shrink-0" />
+                <span className="truncate">{folderName}</span>
               </p>
             )}
           </div>
@@ -572,6 +582,13 @@ export function DiagramCard({
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1.5 line-clamp-2 leading-relaxed">
             {diagram.description || 'No description provided.'}
           </p>
+
+          {folderName && (
+            <p className="flex items-center gap-1 text-[11px] text-slate-400 dark:text-slate-500 mt-1">
+              <FolderIcon className="w-3 h-3 shrink-0" />
+              <span className="truncate">{folderName}</span>
+            </p>
+          )}
 
           {/* Tags */}
           {diagram.tags && diagram.tags.length > 0 && (
