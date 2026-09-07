@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -39,11 +39,18 @@ import { CommandPalette } from '@/components/editor/CommandPalette';
 
 export default function DashboardPage() {
   const router = useRouter();
-  const { user, openLoginModal } = useAuth();
+  const { user, isLoading: isAuthLoading, openLoginModal } = useAuth();
   const [diagrams, setDiagrams] = useState<Diagram[]>([]);
   const [folders, setFolders] = useState<Folder[]>([]);
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
   const [isLoaded, setIsLoaded] = useState(false);
+  // True only for a re-fetch after the first successful load (folder
+  // create/rename/delete, move-to-folder, duplicate, import, delete all
+  // call loadData() again) — the first load uses the full skeleton below
+  // instead, and a re-fetch keeps showing the current list rather than
+  // clearing it, so this only drives a small non-blocking indicator.
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const hasLoadedRef = useRef(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
@@ -59,15 +66,24 @@ export default function DashboardPage() {
   };
 
   const loadData = useCallback(async () => {
+    if (hasLoadedRef.current) setIsRefreshing(true);
     const [list, folderList] = await Promise.all([getDiagrams(user?.id), getFolders(user?.id)]);
     setDiagrams(list);
     setFolders(folderList);
     setIsLoaded(true);
+    setIsRefreshing(false);
+    hasLoadedRef.current = true;
   }, [user?.id]);
 
   useEffect(() => {
+    // Wait for the auth cookie check to resolve before the first fetch —
+    // otherwise `user` is briefly undefined on a hard reload of an already
+    // signed-in session, loadData() fires once against the anonymous
+    // (templates-only) path, and immediately re-fires once auth resolves —
+    // a pointless double fetch that flashed the wrong (template) list first.
+    if (isAuthLoading) return;
     loadData();
-  }, [loadData]);
+  }, [loadData, isAuthLoading]);
 
   // Category counts
   const counts = useMemo(() => {
@@ -354,6 +370,28 @@ export default function DashboardPage() {
         </div>
 
         {/* Sidebar + Diagram Cards */}
+        {!isLoaded ? (
+          // First load only: diagrams starts as [] before loadData()
+          // resolves, which used to fall straight through to the "No
+          // diagrams found" empty state below for a beat (or longer on a
+          // slow connection) before flipping to the real list — a skeleton
+          // instead of that false-empty flash.
+          <div className="flex flex-col lg:flex-row gap-6" aria-busy="true" aria-label="Loading diagrams">
+            <div className="w-full lg:w-56 shrink-0 space-y-2">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="h-7 rounded-lg bg-slate-100 dark:bg-slate-800 animate-pulse" />
+              ))}
+            </div>
+            <div className="flex-1 min-w-0 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <div
+                  key={i}
+                  className="h-48 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 animate-pulse"
+                />
+              ))}
+            </div>
+          </div>
+        ) : (
         <div className="flex flex-col lg:flex-row gap-6">
           <FolderSidebar
             folders={folders}
@@ -366,9 +404,16 @@ export default function DashboardPage() {
             unfiledCount={unfiledCount}
             totalCount={diagrams.length}
             canManageFolders={!!user}
+            onDropDiagram={handleMoveToFolder}
           />
 
           <div className="flex-1 min-w-0">
+            {isRefreshing && (
+              <div className="mb-3 flex items-center gap-1.5 text-[11px] text-slate-400 dark:text-slate-500">
+                <span className="w-3 h-3 border-2 border-slate-300 dark:border-slate-600 border-t-blue-500 rounded-full animate-spin" />
+                <span>Refreshing…</span>
+              </div>
+            )}
             {filteredDiagrams.length > 0 ? (
               <div
                 className={
@@ -430,6 +475,7 @@ export default function DashboardPage() {
             )}
           </div>
         </div>
+        )}
       </main>
 
       {/* Dashboard Footer */}

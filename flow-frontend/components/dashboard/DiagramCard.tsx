@@ -18,7 +18,14 @@ import {
   FolderInput,
   Folder as FolderIcon,
   Check,
+  ChevronDown,
 } from 'lucide-react';
+
+// Custom MIME type for the drag payload — distinct from the browser's own
+// text/uri-list etc. so a drag originating from this card (onto a
+// FolderSidebar drop target) can't be confused with, say, a dragged link or
+// file from elsewhere on the page.
+export const DIAGRAM_DRAG_MIME = 'application/flowcraft-diagram-id';
 import { Diagram } from '@/types/diagram';
 import { Folder } from '@/types/folder';
 
@@ -120,9 +127,25 @@ export function DiagramCard({
   const isEditor = userAccess === 'EDITOR';
   const isViewer = userAccess === 'VIEWER';
 
+  const canMove =
+    !diagram.isTemplate && !diagram.id.startsWith('template-') && !!onMoveToFolder && (isAdmin || isEditor);
+
+  const dragProps = canMove
+    ? {
+        draggable: true,
+        onDragStart: (e: React.DragEvent) => {
+          e.dataTransfer.setData(DIAGRAM_DRAG_MIME, diagram.id);
+          e.dataTransfer.effectAllowed = 'move';
+        },
+      }
+    : {};
+
   if (viewMode === 'list') {
     return (
-      <div className="group bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-3.5 hover:border-blue-400 dark:hover:border-blue-600 hover:shadow-xs transition-all flex items-center justify-between gap-4">
+      <div
+        {...dragProps}
+        className={`group bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-3.5 hover:border-blue-400 dark:hover:border-blue-600 hover:shadow-xs transition-all flex items-center justify-between gap-4 ${canMove ? 'cursor-grab active:cursor-grabbing' : ''}`}
+      >
         {/* Left: Type icon & Info */}
         <Link href={`/flow/${diagram.id}`} className="flex items-center gap-3.5 min-w-0 flex-1">
           <div className={`p-2.5 rounded-lg ${config.badgeBg} ${config.badgeText} shrink-0`}>
@@ -188,8 +211,11 @@ export function DiagramCard({
 
           {menuOpen && (
             <div
-              className="absolute right-0 top-8 w-44 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg py-1 z-20 text-xs text-slate-700 dark:text-slate-200 animate-in fade-in zoom-in-95"
-              onMouseLeave={() => setMenuOpen(false)}
+              className="absolute right-0 top-8 w-44 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg py-1 z-20 text-xs text-slate-700 dark:text-slate-200 animate-in fade-in zoom-in-95 max-h-80 overflow-y-auto"
+              onMouseLeave={() => {
+                setMenuOpen(false);
+                setMoveMenuOpen(false);
+              }}
             >
               <button
                 onClick={() => {
@@ -213,13 +239,26 @@ export function DiagramCard({
               </button>
 
               {!diagram.isTemplate && !diagram.id.startsWith('template-') && onMoveToFolder && (isAdmin || isEditor) && (
-                <div className="relative" onMouseEnter={() => setMoveMenuOpen(true)} onMouseLeave={() => setMoveMenuOpen(false)}>
-                  <button className="w-full text-left px-3 py-1.5 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 cursor-pointer">
-                    <FolderInput className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
-                    <span>Move to Folder</span>
+                <div>
+                  {/* Expands downward in place rather than flying out
+                      sideways — a right-anchored flyout on a card near the
+                      right edge of the grid overflowed past the viewport
+                      and got clipped. */}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setMoveMenuOpen((o) => !o);
+                    }}
+                    className="w-full text-left px-3 py-1.5 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center justify-between gap-2 cursor-pointer"
+                  >
+                    <span className="flex items-center gap-2">
+                      <FolderInput className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
+                      <span>Move to Folder</span>
+                    </span>
+                    <ChevronDown className={`w-3 h-3 text-slate-400 shrink-0 transition-transform ${moveMenuOpen ? 'rotate-180' : ''}`} />
                   </button>
                   {moveMenuOpen && (
-                    <div className="absolute left-full top-0 -ml-1 w-44 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg py-1 z-30 max-h-56 overflow-y-auto">
+                    <div className="ml-3 pl-2 border-l border-slate-100 dark:border-slate-700">
                       <button
                         onClick={() => {
                           setMenuOpen(false);
@@ -307,11 +346,14 @@ export function DiagramCard({
 
   // Grid Mode Card
   return (
-    <div className="group bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden hover:border-blue-400 dark:hover:border-blue-600 hover:shadow-md transition-all duration-200 flex flex-col justify-between">
+    <div
+      {...dragProps}
+      className={`group bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl hover:border-blue-400 dark:hover:border-blue-600 hover:shadow-md transition-all duration-200 flex flex-col justify-between ${canMove ? 'cursor-grab active:cursor-grabbing' : ''}`}
+    >
       {/* Top Banner / Canvas Preview Area */}
       <Link
         href={`/flow/${diagram.id}`}
-        className="block relative bg-gradient-to-b from-slate-50 to-slate-100/60 dark:from-slate-800 dark:to-slate-800/60 p-5 border-b border-slate-100 dark:border-slate-800 overflow-hidden cursor-pointer"
+        className="block relative rounded-t-2xl bg-gradient-to-b from-slate-50 to-slate-100/60 dark:from-slate-800 dark:to-slate-800/60 p-5 border-b border-slate-100 dark:border-slate-800 overflow-hidden cursor-pointer"
       >
         {/* Subtle grid pattern background */}
         <div
@@ -396,8 +438,11 @@ export function DiagramCard({
 
               {menuOpen && (
                 <div
-                  className="absolute right-0 top-7 w-44 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg py-1 z-20 text-xs text-slate-700 dark:text-slate-200 animate-in fade-in zoom-in-95"
-                  onMouseLeave={() => setMenuOpen(false)}
+                  className="absolute right-0 top-7 w-44 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg py-1 z-20 text-xs text-slate-700 dark:text-slate-200 animate-in fade-in zoom-in-95 max-h-80 overflow-y-auto"
+                  onMouseLeave={() => {
+                    setMenuOpen(false);
+                    setMoveMenuOpen(false);
+                  }}
                 >
                   <button
                     onClick={() => {
@@ -421,13 +466,26 @@ export function DiagramCard({
                   </button>
 
                   {!diagram.isTemplate && !diagram.id.startsWith('template-') && onMoveToFolder && (isAdmin || isEditor) && (
-                    <div className="relative" onMouseEnter={() => setMoveMenuOpen(true)} onMouseLeave={() => setMoveMenuOpen(false)}>
-                      <button className="w-full text-left px-3 py-1.5 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 cursor-pointer">
-                        <FolderInput className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
-                        <span>Move to Folder</span>
+                    <div>
+                      {/* Expands downward in place rather than flying out
+                          sideways — a right-anchored flyout on a card near
+                          the right edge of the grid overflowed past the
+                          viewport and got clipped. */}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setMoveMenuOpen((o) => !o);
+                        }}
+                        className="w-full text-left px-3 py-1.5 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center justify-between gap-2 cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2">
+                          <FolderInput className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
+                          <span>Move to Folder</span>
+                        </span>
+                        <ChevronDown className={`w-3 h-3 text-slate-400 shrink-0 transition-transform ${moveMenuOpen ? 'rotate-180' : ''}`} />
                       </button>
                       {moveMenuOpen && (
-                        <div className="absolute left-full top-0 -ml-1 w-44 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg py-1 z-30 max-h-56 overflow-y-auto">
+                        <div className="ml-3 pl-2 border-l border-slate-100 dark:border-slate-700">
                           <button
                             onClick={() => {
                               setMenuOpen(false);

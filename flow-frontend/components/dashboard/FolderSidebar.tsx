@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { Folder as FolderIcon, FolderPlus, Layers, MoreHorizontal, Pencil, Trash2, Check, X } from 'lucide-react';
 import { Folder, FolderColor } from '@/types/folder';
+import { DIAGRAM_DRAG_MIME } from './DiagramCard';
 
 interface FolderSidebarProps {
   folders: Folder[];
@@ -15,6 +16,10 @@ interface FolderSidebarProps {
   unfiledCount: number;
   totalCount: number;
   canManageFolders: boolean;
+  // Undefined folderId means "Unfiled" as a drop target (distinct from a
+  // real folder id) — matches onMoveToFolder's own null-means-unfiled
+  // convention on the diagram card side.
+  onDropDiagram?: (diagramId: string, folderId: string | null) => void;
 }
 
 const DOT_COLOR: Record<FolderColor, string> = {
@@ -41,12 +46,37 @@ export function FolderSidebar({
   unfiledCount,
   totalCount,
   canManageFolders,
+  onDropDiagram,
 }: FolderSidebarProps) {
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
+  // Which drop target (a folder id, or UNFILED_ID) the dragged card is
+  // currently hovering over — drives the highlight ring below.
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
+
+  const dropTargetProps = (folderId: string | null, targetKey: string) =>
+    onDropDiagram
+      ? {
+          onDragOver: (e: React.DragEvent) => {
+            if (!e.dataTransfer.types.includes(DIAGRAM_DRAG_MIME)) return;
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            if (dragOverId !== targetKey) setDragOverId(targetKey);
+          },
+          onDragLeave: () => {
+            setDragOverId((cur) => (cur === targetKey ? null : cur));
+          },
+          onDrop: (e: React.DragEvent) => {
+            e.preventDefault();
+            setDragOverId(null);
+            const diagramId = e.dataTransfer.getData(DIAGRAM_DRAG_MIME);
+            if (diagramId) onDropDiagram(diagramId, folderId);
+          },
+        }
+      : {};
 
   const submitCreate = () => {
     const trimmed = newName.trim();
@@ -95,8 +125,11 @@ export function FolderSidebar({
 
       <button
         onClick={() => onSelectFolder(UNFILED_ID)}
+        {...dropTargetProps(null, UNFILED_ID)}
         className={`w-full flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-          selectedFolderId === UNFILED_ID
+          dragOverId === UNFILED_ID
+            ? 'bg-blue-100 dark:bg-blue-900/50 ring-2 ring-blue-400 dark:ring-blue-600 text-blue-700 dark:text-blue-300 font-semibold'
+            : selectedFolderId === UNFILED_ID
             ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 font-semibold'
             : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
         }`}
@@ -133,8 +166,11 @@ export function FolderSidebar({
             ) : (
               <button
                 onClick={() => onSelectFolder(folder.id)}
+                {...dropTargetProps(folder.id, folder.id)}
                 className={`w-full flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                  selectedFolderId === folder.id
+                  dragOverId === folder.id
+                    ? 'bg-blue-100 dark:bg-blue-900/50 ring-2 ring-blue-400 dark:ring-blue-600 text-blue-700 dark:text-blue-300 font-semibold'
+                    : selectedFolderId === folder.id
                     ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 font-semibold'
                     : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
                 }`}
