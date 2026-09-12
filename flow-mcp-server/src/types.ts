@@ -5,6 +5,30 @@ export interface CanvasSettings {
   snapToGrid: boolean;
   defaultEdgeType: 'smoothstep' | 'bezier' | 'straight';
   gridGap?: number;
+  gridSize?: number;
+}
+
+// Shared appearance overrides available on every node type from the
+// Properties panel's "Style" section, layered on top of each type's own
+// theme/color system.
+export interface NodeStyleOverrides {
+  borderRadius?: number;
+  strokeWidth?: number;
+  strokeColor?: string;
+  fontSize?: number;
+  fontColor?: string;
+  fontWeight?: 'normal' | 'medium' | 'semibold' | 'bold';
+  fontFamily?: string;
+  opacity?: number;
+  textAlign?: 'left' | 'center' | 'right';
+  bgColor?: string;
+}
+
+export interface EdgeMarker {
+  type: 'arrow' | 'arrowclosed';
+  color?: string;
+  width?: number;
+  height?: number;
 }
 
 export interface ERColumn {
@@ -23,9 +47,11 @@ export interface NodePosition {
 
 export interface DiagramNode {
   id: string;
-  type: 'systemNode' | 'flowchartNode' | 'erTableNode' | 'groupNode' | 'stickyNode' | string;
+  type: 'systemNode' | 'flowchartNode' | 'erTableNode' | 'groupNode' | 'stickyNode' | 'imageNode' | string;
   position: NodePosition;
   data: Record<string, any>;
+  width?: number;
+  height?: number;
 }
 
 export interface DiagramEdge {
@@ -35,6 +61,8 @@ export interface DiagramEdge {
   type?: string;
   sourceHandle?: string;
   targetHandle?: string;
+  markerStart?: EdgeMarker;
+  markerEnd?: EdgeMarker;
   data?: {
     label?: string;
     animated?: boolean;
@@ -42,6 +70,7 @@ export interface DiagramEdge {
     strokeColor?: string;
     strokeWidth?: number;
     strokeStyle?: 'solid' | 'dashed' | 'dotted';
+    lineType?: 'none' | 'end' | 'start' | 'both';
     [key: string]: any;
   };
 }

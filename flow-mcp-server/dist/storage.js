@@ -2,6 +2,20 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { MongoClient } from 'mongodb';
+// Mirrors computeEdgeMarkers() in the frontend's app/flow/[id]/page.tsx —
+// React Flow builds its <marker> SVG defs from each edge's top-level
+// markerStart/markerEnd, not from `data`, so these must be derived here too
+// whenever lineType or strokeColor changes, or arrows written via MCP won't
+// render until the user touches the edge in the UI.
+export function computeEdgeMarkers(data) {
+    const color = data.strokeColor || '#94a3b8';
+    const marker = { type: 'arrowclosed', color, width: 18, height: 18 };
+    const lineType = data.lineType || 'none';
+    return {
+        markerStart: lineType === 'start' || lineType === 'both' ? marker : undefined,
+        markerEnd: lineType === 'end' || lineType === 'both' ? marker : undefined,
+    };
+}
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 // Live Vercel Application Configuration
@@ -304,7 +318,8 @@ export async function createDiagram(params) {
             gridType: params.gridType || 'dots',
             snapToGrid: true,
             defaultEdgeType: params.defaultEdgeType || 'smoothstep',
-            gridGap: 20
+            gridGap: 20,
+            gridSize: params.gridSize || 1.2
         },
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
@@ -378,7 +393,9 @@ export async function addNodeToDiagram(diagramId, node) {
             x: 100 + (diagram.nodes.length % 5) * 220,
             y: 100 + Math.floor(diagram.nodes.length / 5) * 160
         },
-        data: node.data || {}
+        data: node.data || {},
+        ...(node.width !== undefined ? { width: node.width } : {}),
+        ...(node.height !== undefined ? { height: node.height } : {}),
     };
     diagram.nodes.push(fullNode);
     await saveDiagram(diagram);
@@ -396,6 +413,8 @@ export async function updateNodeInDiagram(diagramId, nodeId, patch) {
         ...existingNode,
         ...(patch.type ? { type: patch.type } : {}),
         ...(patch.position ? { position: patch.position } : {}),
+        ...(patch.width !== undefined ? { width: patch.width } : {}),
+        ...(patch.height !== undefined ? { height: patch.height } : {}),
         ...(patch.data ? { data: { ...existingNode.data, ...patch.data } } : {})
     };
     diagram.nodes[index] = updatedNode;
@@ -425,6 +444,15 @@ export async function addEdgeToDiagram(diagramId, params) {
         throw new Error(`Invalid connection: source (${params.source}) or target (${params.target}) node not found in diagram.`);
     }
     const edgeId = params.id || `e_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    const data = {
+        label: params.label || '',
+        edgeType: params.edgeType || diagram.settings.defaultEdgeType || 'smoothstep',
+        animated: params.animated ?? false,
+        strokeColor: params.strokeColor || '#64748b',
+        strokeWidth: params.strokeWidth,
+        strokeStyle: params.strokeStyle || 'solid',
+        lineType: params.lineType || 'none'
+    };
     const fullEdge = {
         id: edgeId,
         source: params.source,
@@ -432,13 +460,8 @@ export async function addEdgeToDiagram(diagramId, params) {
         type: 'customEdge',
         sourceHandle: params.sourceHandle,
         targetHandle: params.targetHandle,
-        data: {
-            label: params.label || '',
-            edgeType: params.edgeType || diagram.settings.defaultEdgeType || 'smoothstep',
-            animated: params.animated ?? false,
-            strokeColor: params.strokeColor || '#64748b',
-            strokeStyle: params.strokeStyle || 'solid'
-        }
+        ...computeEdgeMarkers(data),
+        data
     };
     diagram.edges.push(fullEdge);
     await saveDiagram(diagram);
@@ -452,12 +475,17 @@ export async function updateEdgeInDiagram(diagramId, edgeId, patch) {
     if (index === -1)
         return null;
     const existingEdge = diagram.edges[index];
+    const { sourceHandle, targetHandle, ...dataPatch } = patch;
+    const mergedData = {
+        ...existingEdge.data,
+        ...dataPatch
+    };
     const updatedEdge = {
         ...existingEdge,
-        data: {
-            ...existingEdge.data,
-            ...patch
-        }
+        ...(sourceHandle ? { sourceHandle } : {}),
+        ...(targetHandle ? { targetHandle } : {}),
+        ...computeEdgeMarkers(mergedData),
+        data: mergedData
     };
     diagram.edges[index] = updatedEdge;
     await saveDiagram(diagram);

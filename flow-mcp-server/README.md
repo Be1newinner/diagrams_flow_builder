@@ -19,17 +19,19 @@ The server provides **full CRUD** functionality across diagrams, nodes, and conn
 
 ### 2. Node Operations
 - `add_node`: Add a node to any diagram. Supports:
-  - **System Design Nodes** (`systemNode`): with cloud icons (server, database, cloud, globe, cpu, shield, layers, radio, smartphone, lock, cart, dollar), category, status pill, and theme colors.
-  - **Flowchart Shapes** (`flowchartNode`): `process`, `decision` (diamond), `start-end` (pill), `input-output` (parallelogram).
+  - **System Design Nodes** (`systemNode`): with cloud icons (server, database, cloud, globe, cpu, shield, layers, radio, smartphone, terminal, arrow-left-right, lock, network, zap, cart, dollar), category, status pill, port badge, and theme colors.
+  - **Flowchart Shapes** (`flowchartNode`): `process`, `decision` (diamond), `start-end` (pill), `input-output` (parallelogram), `document`, `delay`.
   - **ER Database Tables** (`erTableNode`): with table name, header theme, and typed column definitions (`name`, `type`, `isPrimary`, `isForeign`, `isNullable`).
   - **Sticky Notes** (`stickyNode`): architecture notes and remarks in 5 color tones.
-  - **Group Containers** (`groupNode`): VPC / Subnet boundaries.
-- `update_node`: Modify position or any node properties (title, subtitle, status, colors, ER columns schema).
+  - **Group Containers** (`groupNode`): VPC / Subnet boundaries, resizable via `width`/`height`.
+  - **Image Nodes** (`imageNode`): embed an image (`src` as `http(s)://` or `data:image/` URI), `alt` text, and `fit` (`contain`/`cover`/`fill`), resizable via `width`/`height`.
+  - **Shared style overrides** on every node type: `borderRadius`, `strokeWidth`, `strokeColor`, `fontSize`, `fontColor`, `fontWeight`, `fontFamily`, `opacity`, `textAlign`, `bgColor` — mirrors the app's Properties panel "Style" section.
+- `update_node`: Modify position, size (`width`/`height`), or any node properties (title, subtitle, status, colors, ER columns schema, style overrides).
 - `delete_node`: Remove a node and automatically clean up attached edges.
 
 ### 3. Edge / Connection Operations
-- `add_edge`: Connect two nodes with labels (e.g. `HTTPS / REST`, `1 : N`, `Yes`), line curves (`smoothstep`, `bezier`, `straight`), animated pulse, and custom stroke colors.
-- `update_edge`: Update edge label, style, animation, or stroke color.
+- `add_edge`: Connect two nodes with labels (e.g. `HTTPS / REST`, `1 : N`, `Yes`), line curves (`smoothstep`, `bezier`, `straight`), animated pulse, custom stroke color/width/style, handle sides, and **arrowheads** (`lineType`: `none`, `end`, `start`, `both`).
+- `update_edge`: Update edge label, curve style, animation, stroke color/width/style, arrowheads (`lineType`), or move either endpoint to a different side of its node (`sourceHandle`/`targetHandle`).
 - `delete_edge`: Remove a connection line.
 
 ### 4. High-Performance Batch Creation

@@ -20,6 +20,7 @@ import {
   getStorageFilePath,
   getEditorUrl,
   getAppUrl,
+  computeEdgeMarkers,
 } from './storage.js';
 import { tidyLayout } from './layout.js';
 import { DiagramNode, DiagramEdge } from './types.js';
@@ -145,6 +146,7 @@ server.tool(
     template: z.enum(['blank', 'microservices', 'checkout-flow', 'saas-er']).optional().default('blank').describe('Starter template to initialize nodes and edges with'),
     gridType: z.enum(['dots', 'lines', 'cross', 'none']).optional().default('dots').describe('Canvas grid pattern'),
     defaultEdgeType: z.enum(['smoothstep', 'bezier', 'straight']).optional().default('smoothstep').describe('Default connection curve'),
+    gridSize: z.number().optional().describe('Dot size / line thickness of the grid (0.5-4px, default 1.2)'),
   },
   async (params) => {
     const created = await createDiagram(params);
@@ -183,8 +185,10 @@ server.tool(
     tags: z.array(z.string()).optional().describe('New list of tags'),
     gridType: z.enum(['dots', 'lines', 'cross', 'none']).optional().describe('Canvas grid pattern'),
     defaultEdgeType: z.enum(['smoothstep', 'bezier', 'straight']).optional().describe('Default edge style'),
+    gridSize: z.number().optional().describe('Dot size / line thickness of the grid (0.5-4px)'),
+    snapToGrid: z.boolean().optional().describe('Whether nodes snap to the grid while dragging'),
   },
-  async ({ diagramId, title, description, category, tags, gridType, defaultEdgeType }) => {
+  async ({ diagramId, title, description, category, tags, gridType, defaultEdgeType, gridSize, snapToGrid }) => {
     const existing = await getDiagramById(diagramId);
     if (!existing) {
       return { isError: true, content: [{ type: 'text', text: `Diagram "${diagramId}" not found.` }] };
@@ -195,11 +199,13 @@ server.tool(
     if (description !== undefined) patch.description = description.trim();
     if (category !== undefined) patch.category = category;
     if (tags !== undefined) patch.tags = tags;
-    if (gridType || defaultEdgeType) {
+    if (gridType || defaultEdgeType || gridSize !== undefined || snapToGrid !== undefined) {
       patch.settings = {
         ...existing.settings,
         ...(gridType ? { gridType } : {}),
         ...(defaultEdgeType ? { defaultEdgeType } : {}),
+        ...(gridSize !== undefined ? { gridSize } : {}),
+        ...(snapToGrid !== undefined ? { snapToGrid } : {}),
       };
     }
 
@@ -311,27 +317,52 @@ server.tool(
 // ==========================================
 
 // Tool: add_node
+const NODE_STYLE_SHAPE = {
+  borderRadius: z.number().optional().describe('[style] Corner radius in px, applied on top of the node type\'s own theme'),
+  strokeWidth: z.number().optional().describe('[style] Border/outline width in px'),
+  strokeColor: z.string().optional().describe('[style] Border/outline hex color, e.g. #2563eb'),
+  fontSize: z.number().optional().describe('[style] Text font size in px'),
+  fontColor: z.string().optional().describe('[style] Text hex color'),
+  fontWeight: z.enum(['normal', 'medium', 'semibold', 'bold']).optional().describe('[style] Text font weight'),
+  fontFamily: z.string().optional().describe('[style] Font family, e.g. "Inter", "Georgia", "JetBrains Mono", "Comic Sans MS"'),
+  opacity: z.number().min(0).max(1).optional().describe('[style] Node opacity, 0-1'),
+  textAlign: z.enum(['left', 'center', 'right']).optional().describe('[style] Text alignment'),
+  bgColor: z.string().optional().describe('[style] Background hex color override'),
+};
+
+function styleOverridesFromParams(params: Record<string, any>): Record<string, any> {
+  const style: Record<string, any> = {};
+  for (const key of ['borderRadius', 'strokeWidth', 'strokeColor', 'fontSize', 'fontColor', 'fontWeight', 'fontFamily', 'opacity', 'textAlign', 'bgColor']) {
+    if (params[key] !== undefined) style[key] = params[key];
+  }
+  return style;
+}
+
+// Tool: add_node
 server.tool(
   'add_node',
-  'Add a new node to a diagram. Supports system nodes, flowchart shapes, ER table nodes, sticky notes, and container groups.',
+  'Add a new node to a diagram. Supports system nodes, flowchart shapes, ER table nodes, sticky notes, container groups, and images.',
   {
     diagramId: z.string().describe('Diagram ID to add node into'),
     nodeId: z.string().optional().describe('Custom ID for node. If omitted, a unique ID is auto-generated.'),
-    type: z.enum(['systemNode', 'flowchartNode', 'erTableNode', 'groupNode', 'stickyNode']).describe('Type of node'),
+    type: z.enum(['systemNode', 'flowchartNode', 'erTableNode', 'groupNode', 'stickyNode', 'imageNode']).describe('Type of node'),
     position: z.object({ x: z.number(), y: z.number() }).optional().describe('Canvas position. If omitted, positioned automatically.'),
+    width: z.number().optional().describe('Node width in px (mainly for groupNode/imageNode)'),
+    height: z.number().optional().describe('Node height in px (mainly for groupNode/imageNode)'),
 
     // System Node Props
     title: z.string().optional().describe('[systemNode] Primary title, e.g. "Order Service" or "Postgres DB"'),
     subtitle: z.string().optional().describe('[systemNode] Secondary tech info, e.g. "Go / gRPC" or "Port 5432"'),
-    icon: z.string().optional().default('server').describe('[systemNode] Icon name: server, database, cloud, globe, cpu, shield, layers, radio, smartphone, terminal, arrow-left-right, lock, cart, dollar'),
+    icon: z.string().optional().default('server').describe('[systemNode] Icon name: server, database, cloud, globe, cpu, shield, layers, radio, smartphone, terminal, arrow-left-right, lock, network, zap, cart, dollar'),
     category: z.string().optional().describe('[systemNode] Category badge: Compute, Database, Storage, Security, Queue, Client, Network'),
     status: z.string().optional().describe('[systemNode] Status pill: "Active", "Healthy", "Port 8080"'),
+    port: z.string().optional().describe('[systemNode] Port badge text, e.g. "5432"'),
     themeColor: z.enum(['blue', 'indigo', 'emerald', 'amber', 'rose', 'purple', 'cyan', 'slate']).optional().default('blue').describe('Color theme'),
 
     // Flowchart Node Props
     label: z.string().optional().describe('[flowchartNode] Step text label'),
     description: z.string().optional().describe('[flowchartNode] Description or step details'),
-    shape: z.enum(['start-end', 'process', 'decision', 'input-output']).optional().default('process').describe('[flowchartNode] Geometric shape'),
+    shape: z.enum(['start-end', 'process', 'decision', 'input-output', 'document', 'delay']).optional().default('process').describe('[flowchartNode] Geometric shape'),
 
     // ER Table Node Props
     tableName: z.string().optional().describe('[erTableNode] Name of SQL table, e.g. "users", "orders"'),
@@ -354,6 +385,14 @@ server.tool(
     // Group Node Props
     groupLabel: z.string().optional().describe('[groupNode] Container label, e.g. "AWS VPC 10.0.0.0/16"'),
     stylePreset: z.enum(['slate', 'blue', 'emerald', 'amber', 'purple', 'rose']).optional().default('slate').describe('[groupNode] Border style preset'),
+
+    // Image Node Props
+    src: z.string().optional().describe('[imageNode] Image URL — must be http(s):// or a data:image/ URI'),
+    alt: z.string().optional().describe('[imageNode] Alt text for the image'),
+    fit: z.enum(['contain', 'cover', 'fill']).optional().default('contain').describe('[imageNode] How the image fills its box'),
+
+    // Shared style overrides (all node types)
+    ...NODE_STYLE_SHAPE,
   },
   async (params) => {
     let nodeData: Record<string, any> = {};
@@ -365,6 +404,7 @@ server.tool(
         icon: params.icon || 'server',
         category: params.category || 'Compute',
         status: params.status || 'Active',
+        port: params.port,
         themeColor: params.themeColor || 'blue',
       };
     } else if (params.type === 'flowchartNode') {
@@ -396,12 +436,22 @@ server.tool(
         label: params.groupLabel || 'Container Group',
         stylePreset: params.stylePreset || 'slate',
       };
+    } else if (params.type === 'imageNode') {
+      nodeData = {
+        src: params.src || '',
+        alt: params.alt || '',
+        fit: params.fit || 'contain',
+      };
     }
+
+    Object.assign(nodeData, styleOverridesFromParams(params));
 
     const newNode = await addNodeToDiagram(params.diagramId, {
       id: params.nodeId,
       type: params.type,
       position: params.position,
+      width: params.width,
+      height: params.height,
       data: nodeData,
     });
 
@@ -437,10 +487,12 @@ server.tool(
     diagramId: z.string().describe('The diagram ID'),
     nodeId: z.string().describe('The node ID to update'),
     position: z.object({ x: z.number(), y: z.number() }).optional().describe('New position on canvas'),
-    data: z.record(z.any()).optional().describe('Key-value pairs to merge into node data (e.g. { title: "New Title", status: "Port 9090", themeColor: "emerald" })'),
+    width: z.number().optional().describe('New node width in px (e.g. resizing a groupNode or imageNode)'),
+    height: z.number().optional().describe('New node height in px'),
+    data: z.record(z.any()).optional().describe('Key-value pairs to merge into node data (e.g. { title: "New Title", status: "Port 9090", themeColor: "emerald", fontSize: 14, borderRadius: 8, opacity: 0.8 })'),
   },
-  async ({ diagramId, nodeId, position, data }) => {
-    const updated = await updateNodeInDiagram(diagramId, nodeId, { position, data });
+  async ({ diagramId, nodeId, position, width, height, data }) => {
+    const updated = await updateNodeInDiagram(diagramId, nodeId, { position, width, height, data });
     if (!updated) {
       return {
         isError: true,
@@ -503,7 +555,9 @@ server.tool(
     edgeType: z.enum(['smoothstep', 'bezier', 'straight']).optional().default('smoothstep').describe('Line curve style'),
     animated: z.boolean().optional().default(false).describe('Whether to animate a moving dashed pulse'),
     strokeColor: z.string().optional().default('#64748b').describe('Line stroke color hex (e.g. #2563eb, #10b981)'),
+    strokeWidth: z.number().optional().describe('Line stroke width in px'),
     strokeStyle: z.enum(['solid', 'dashed', 'dotted']).optional().default('solid').describe('Line dash pattern'),
+    lineType: z.enum(['none', 'end', 'start', 'both']).optional().default('none').describe('Arrowhead placement: none, at target (end), at source (start), or both ends'),
   },
   async (params) => {
     try {
@@ -536,7 +590,11 @@ server.tool(
     edgeType: z.enum(['smoothstep', 'bezier', 'straight']).optional().describe('Line curve style'),
     animated: z.boolean().optional().describe('Toggle animation pulse'),
     strokeColor: z.string().optional().describe('Line stroke hex color'),
+    strokeWidth: z.number().optional().describe('Line stroke width in px'),
     strokeStyle: z.enum(['solid', 'dashed', 'dotted']).optional().describe('Line stroke pattern'),
+    lineType: z.enum(['none', 'end', 'start', 'both']).optional().describe('Arrowhead placement: none, at target (end), at source (start), or both ends'),
+    sourceHandle: z.enum(['top', 'right', 'bottom', 'left']).optional().describe('Move the edge\'s source endpoint to this side of the source node'),
+    targetHandle: z.enum(['top', 'right', 'bottom', 'left']).optional().describe('Move the edge\'s target endpoint to this side of the target node'),
   },
   async ({ diagramId, edgeId, ...patch }) => {
     const updated = await updateEdgeInDiagram(diagramId, edgeId, patch);
@@ -591,9 +649,11 @@ server.tool(
     nodes: z.array(
       z.object({
         id: z.string().describe('Unique node ID (e.g. "api-gw", "db-main")'),
-        type: z.enum(['systemNode', 'flowchartNode', 'erTableNode', 'groupNode', 'stickyNode']).describe('Node type'),
+        type: z.enum(['systemNode', 'flowchartNode', 'erTableNode', 'groupNode', 'stickyNode', 'imageNode']).describe('Node type'),
         position: z.object({ x: z.number(), y: z.number() }).optional().describe('Canvas coordinates'),
-        data: z.record(z.any()).describe('Node data matching the node type (title, subtitle, icon, themeColor, tableName, columns, label, shape, etc.)'),
+        width: z.number().optional().describe('Node width in px (mainly for groupNode/imageNode)'),
+        height: z.number().optional().describe('Node height in px (mainly for groupNode/imageNode)'),
+        data: z.record(z.any()).describe('Node data matching the node type (title, subtitle, icon, themeColor, tableName, columns, label, shape, src, alt, fit, etc.) plus optional shared style overrides (borderRadius, strokeWidth, strokeColor, fontSize, fontColor, fontWeight, fontFamily, opacity, textAlign, bgColor)'),
       })
     ).describe('List of nodes to insert'),
     edges: z.array(
@@ -602,9 +662,14 @@ server.tool(
         source: z.string().describe('Source node ID'),
         target: z.string().describe('Target node ID'),
         label: z.string().optional().describe('Connection label'),
+        sourceHandle: z.enum(['top', 'right', 'bottom', 'left']).optional().describe('Handle on source node to originate connection'),
+        targetHandle: z.enum(['top', 'right', 'bottom', 'left']).optional().describe('Handle on target node to terminate connection'),
         edgeType: z.enum(['smoothstep', 'bezier', 'straight']).optional().default('smoothstep'),
         animated: z.boolean().optional().default(false),
         strokeColor: z.string().optional().default('#64748b'),
+        strokeWidth: z.number().optional().describe('Line stroke width in px'),
+        strokeStyle: z.enum(['solid', 'dashed', 'dotted']).optional().default('solid'),
+        lineType: z.enum(['none', 'end', 'start', 'both']).optional().default('none').describe('Arrowhead placement'),
       })
     ).optional().default([]).describe('List of edges connecting the nodes'),
     autoLayout: z.boolean().optional().default(true).describe('If true, automatically computes clean non-overlapping coordinates for all nodes'),
@@ -619,21 +684,32 @@ server.tool(
       id: n.id,
       type: n.type,
       position: n.position || { x: 100 + (i % 4) * 260, y: 100 + Math.floor(i / 4) * 160 },
+      ...(n.width !== undefined ? { width: n.width } : {}),
+      ...(n.height !== undefined ? { height: n.height } : {}),
       data: n.data,
     }));
 
-    const preparedEdges: DiagramEdge[] = (edges || []).map((e, i) => ({
-      id: e.id || `e_${Date.now()}_${i}`,
-      source: e.source,
-      target: e.target,
-      type: 'customEdge',
-      data: {
+    const preparedEdges: DiagramEdge[] = (edges || []).map((e, i) => {
+      const data = {
         label: e.label || '',
         edgeType: e.edgeType || 'smoothstep',
         animated: e.animated ?? false,
         strokeColor: e.strokeColor || '#64748b',
-      },
-    }));
+        strokeWidth: e.strokeWidth,
+        strokeStyle: e.strokeStyle || 'solid',
+        lineType: e.lineType || 'none',
+      };
+      return {
+        id: e.id || `e_${Date.now()}_${i}`,
+        source: e.source,
+        target: e.target,
+        type: 'customEdge',
+        sourceHandle: e.sourceHandle,
+        targetHandle: e.targetHandle,
+        ...computeEdgeMarkers(data),
+        data,
+      };
+    });
 
     if (autoLayout) {
       const allNodes = [...diagram.nodes, ...preparedNodes];

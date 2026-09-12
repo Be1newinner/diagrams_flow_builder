@@ -2,7 +2,22 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { MongoClient, Collection } from 'mongodb';
-import { Diagram, DiagramCategory, DiagramNode, DiagramEdge } from './types.js';
+import { Diagram, DiagramCategory, DiagramNode, DiagramEdge, EdgeMarker } from './types.js';
+
+// Mirrors computeEdgeMarkers() in the frontend's app/flow/[id]/page.tsx —
+// React Flow builds its <marker> SVG defs from each edge's top-level
+// markerStart/markerEnd, not from `data`, so these must be derived here too
+// whenever lineType or strokeColor changes, or arrows written via MCP won't
+// render until the user touches the edge in the UI.
+export function computeEdgeMarkers(data: Record<string, any>): { markerStart?: EdgeMarker; markerEnd?: EdgeMarker } {
+  const color = data.strokeColor || '#94a3b8';
+  const marker: EdgeMarker = { type: 'arrowclosed', color, width: 18, height: 18 };
+  const lineType = data.lineType || 'none';
+  return {
+    markerStart: lineType === 'start' || lineType === 'both' ? marker : undefined,
+    markerEnd: lineType === 'end' || lineType === 'both' ? marker : undefined,
+  };
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -230,6 +245,7 @@ export async function createDiagram(params: {
   template?: 'blank' | 'microservices' | 'checkout-flow' | 'saas-er';
   gridType?: 'dots' | 'lines' | 'cross' | 'none';
   defaultEdgeType?: 'smoothstep' | 'bezier' | 'straight';
+  gridSize?: number;
 }): Promise<Diagram> {
   const newId = `flow_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
   
@@ -328,7 +344,8 @@ export async function createDiagram(params: {
       gridType: params.gridType || 'dots',
       snapToGrid: true,
       defaultEdgeType: params.defaultEdgeType || 'smoothstep',
-      gridGap: 20
+      gridGap: 20,
+      gridSize: params.gridSize || 1.2
     },
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
@@ -409,7 +426,9 @@ export async function addNodeToDiagram(diagramId: string, node: Partial<DiagramN
       x: 100 + (diagram.nodes.length % 5) * 220,
       y: 100 + Math.floor(diagram.nodes.length / 5) * 160
     },
-    data: node.data || {}
+    data: node.data || {},
+    ...(node.width !== undefined ? { width: node.width } : {}),
+    ...(node.height !== undefined ? { height: node.height } : {}),
   };
 
   diagram.nodes.push(fullNode);
@@ -420,7 +439,7 @@ export async function addNodeToDiagram(diagramId: string, node: Partial<DiagramN
 export async function updateNodeInDiagram(
   diagramId: string,
   nodeId: string,
-  patch: { position?: { x: number; y: number }; data?: Record<string, any>; type?: string }
+  patch: { position?: { x: number; y: number }; data?: Record<string, any>; type?: string; width?: number; height?: number }
 ): Promise<DiagramNode | null> {
   const diagram = await getDiagramById(diagramId);
   if (!diagram) return null;
@@ -433,6 +452,8 @@ export async function updateNodeInDiagram(
     ...existingNode,
     ...(patch.type ? { type: patch.type } : {}),
     ...(patch.position ? { position: patch.position } : {}),
+    ...(patch.width !== undefined ? { width: patch.width } : {}),
+    ...(patch.height !== undefined ? { height: patch.height } : {}),
     ...(patch.data ? { data: { ...existingNode.data, ...patch.data } } : {})
   };
 
@@ -467,7 +488,9 @@ export async function addEdgeToDiagram(
     edgeType?: 'smoothstep' | 'bezier' | 'straight';
     animated?: boolean;
     strokeColor?: string;
+    strokeWidth?: number;
     strokeStyle?: 'solid' | 'dashed' | 'dotted';
+    lineType?: 'none' | 'end' | 'start' | 'both';
   }
 ): Promise<DiagramEdge | null> {
   const diagram = await getDiagramById(diagramId);
@@ -480,6 +503,15 @@ export async function addEdgeToDiagram(
   }
 
   const edgeId = params.id || `e_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+  const data = {
+    label: params.label || '',
+    edgeType: params.edgeType || diagram.settings.defaultEdgeType || 'smoothstep',
+    animated: params.animated ?? false,
+    strokeColor: params.strokeColor || '#64748b',
+    strokeWidth: params.strokeWidth,
+    strokeStyle: params.strokeStyle || 'solid',
+    lineType: params.lineType || 'none'
+  };
   const fullEdge: DiagramEdge = {
     id: edgeId,
     source: params.source,
@@ -487,13 +519,8 @@ export async function addEdgeToDiagram(
     type: 'customEdge',
     sourceHandle: params.sourceHandle,
     targetHandle: params.targetHandle,
-    data: {
-      label: params.label || '',
-      edgeType: params.edgeType || diagram.settings.defaultEdgeType || 'smoothstep',
-      animated: params.animated ?? false,
-      strokeColor: params.strokeColor || '#64748b',
-      strokeStyle: params.strokeStyle || 'solid'
-    }
+    ...computeEdgeMarkers(data),
+    data
   };
 
   diagram.edges.push(fullEdge);
@@ -509,7 +536,11 @@ export async function updateEdgeInDiagram(
     edgeType?: 'smoothstep' | 'bezier' | 'straight';
     animated?: boolean;
     strokeColor?: string;
+    strokeWidth?: number;
     strokeStyle?: 'solid' | 'dashed' | 'dotted';
+    lineType?: 'none' | 'end' | 'start' | 'both';
+    sourceHandle?: 'top' | 'right' | 'bottom' | 'left';
+    targetHandle?: 'top' | 'right' | 'bottom' | 'left';
   }
 ): Promise<DiagramEdge | null> {
   const diagram = await getDiagramById(diagramId);
@@ -519,12 +550,17 @@ export async function updateEdgeInDiagram(
   if (index === -1) return null;
 
   const existingEdge = diagram.edges[index];
+  const { sourceHandle, targetHandle, ...dataPatch } = patch;
+  const mergedData = {
+    ...existingEdge.data,
+    ...dataPatch
+  };
   const updatedEdge: DiagramEdge = {
     ...existingEdge,
-    data: {
-      ...existingEdge.data,
-      ...patch
-    }
+    ...(sourceHandle ? { sourceHandle } : {}),
+    ...(targetHandle ? { targetHandle } : {}),
+    ...computeEdgeMarkers(mergedData),
+    data: mergedData
   };
 
   diagram.edges[index] = updatedEdge;
