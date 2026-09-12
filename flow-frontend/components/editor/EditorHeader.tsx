@@ -19,6 +19,7 @@ import {
   FileImage,
   FileCode,
   FileJson,
+  FileText,
   Layers,
   Network,
   GitFork,
@@ -60,8 +61,7 @@ interface EditorHeaderProps {
   onChangeGridSize: (size: number) => void;
   defaultEdgeType: 'smoothstep' | 'bezier' | 'straight';
   onChangeDefaultEdgeType: (type: 'smoothstep' | 'bezier' | 'straight') => void;
-  onExportPNG: () => void;
-  onExportSVG: () => void;
+  onOpenExportModal: (format: 'png' | 'svg' | 'pdf') => void;
   onExportJSON: () => void;
   onImportJSON: (file: File) => void;
   onOpenAiModal?: () => void;
@@ -97,8 +97,7 @@ export function EditorHeader({
   onChangeGridSize,
   defaultEdgeType,
   onChangeDefaultEdgeType,
-  onExportPNG,
-  onExportSVG,
+  onOpenExportModal,
   onExportJSON,
   onImportJSON,
   onOpenAiModal,
@@ -527,7 +526,7 @@ export function EditorHeader({
               <button
                 onClick={() => {
                   setExportMenuOpen(false);
-                  onExportPNG();
+                  onOpenExportModal('png');
                 }}
                 className="w-full text-left px-3.5 py-2 hover:bg-slate-50 flex items-center gap-2.5"
               >
@@ -541,7 +540,7 @@ export function EditorHeader({
               <button
                 onClick={() => {
                   setExportMenuOpen(false);
-                  onExportSVG();
+                  onOpenExportModal('svg');
                 }}
                 className="w-full text-left px-3.5 py-2 hover:bg-slate-50 flex items-center gap-2.5"
               >
@@ -549,6 +548,20 @@ export function EditorHeader({
                 <div>
                   <div className="font-semibold text-slate-800">Export as SVG</div>
                   <div className="text-[10px] text-slate-400">Scalable vector graphic</div>
+                </div>
+              </button>
+
+              <button
+                onClick={() => {
+                  setExportMenuOpen(false);
+                  onOpenExportModal('pdf');
+                }}
+                className="w-full text-left px-3.5 py-2 hover:bg-slate-50 flex items-center gap-2.5"
+              >
+                <FileText className="w-4 h-4 text-rose-600" />
+                <div>
+                  <div className="font-semibold text-slate-800">Export as PDF</div>
+                  <div className="text-[10px] text-slate-400">Print-ready document</div>
                 </div>
               </button>
 

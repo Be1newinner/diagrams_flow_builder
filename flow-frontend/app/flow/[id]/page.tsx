@@ -24,8 +24,11 @@ import {
   MiniMap,
   useReactFlow,
   OnSelectionChangeParams,
+  getNodesBounds,
+  getViewportForBounds,
 } from '@xyflow/react';
 import { toPng, toSvg } from 'html-to-image';
+import jsPDF from 'jspdf';
 import type Ably from 'ably';
 import {
   ArrowLeft,
@@ -68,6 +71,7 @@ import { EditorHeader } from '@/components/editor/EditorHeader';
 import { SidebarPalette } from '@/components/editor/SidebarPalette';
 import { PropertiesPanel } from '@/components/editor/PropertiesPanel';
 import { AiAssistantModal } from '@/components/editor/AiAssistantModal';
+import { ExportModal, ExportFormat, ExportOptions } from '@/components/editor/ExportModal';
 import { AlignmentToolbar } from '@/components/editor/AlignmentToolbar';
 import { CollaboratorCursors } from '@/components/editor/CollaboratorCursors';
 import { CollaboratorSelections } from '@/components/editor/CollaboratorSelections';
@@ -148,6 +152,8 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
   );
 
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
+  const [exportModalOpen, setExportModalOpen] = useState(false);
+  const [exportFormat, setExportFormat] = useState<ExportFormat>('png');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   // True only while there is a real, user-driven change waiting to be saved.
@@ -1829,37 +1835,102 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
   );
 
   // Export handlers
-  const handleExportPNG = useCallback(() => {
-    if (!reactFlowWrapper.current) return;
-    const flowElem = reactFlowWrapper.current.querySelector('.react-flow__viewport') as HTMLElement;
-    if (!flowElem) return;
+  // 1x is pinned to a 720p-tall baseline; 2x-5x scale that baseline up
+  // rather than scaling the device's own pixel ratio, so the size selector
+  // means the same thing regardless of what screen this runs on.
+  const EXPORT_BASE_HEIGHT = 720;
 
-    toPng(flowElem, {
-      backgroundColor: '#f8fafc',
-      quality: 0.95,
-      pixelRatio: 2,
-    }).then((dataUrl) => {
-      const a = document.createElement('a');
-      a.download = `${diagram.title.toLowerCase().replace(/\s+/g, '_')}.png`;
-      a.href = dataUrl;
-      a.click();
-    });
-  }, [diagram.title]);
+  const downloadDataUrl = (dataUrl: string, filename: string) => {
+    const a = document.createElement('a');
+    a.download = filename;
+    a.href = dataUrl;
+    a.click();
+  };
 
-  const handleExportSVG = useCallback(() => {
-    if (!reactFlowWrapper.current) return;
-    const flowElem = reactFlowWrapper.current.querySelector('.react-flow__viewport') as HTMLElement;
-    if (!flowElem) return;
+  // Computes the pixel size + `.react-flow__viewport` transform to capture
+  // for a given export scope:
+  //  - 'all': fits every node's bounds into the target canvas, ignoring the
+  //    user's current pan/zoom (mirrors React Flow's official
+  //    getNodesBounds/getViewportForBounds "download image" recipe).
+  //  - 'visible': keeps exactly the diagram's current on-screen framing
+  //    (same pan/zoom), just re-rendered at a higher pixel size.
+  const computeExportGeometry = useCallback(
+    (scope: ExportOptions['scope'], multiplier: number) => {
+      const targetHeight = EXPORT_BASE_HEIGHT * multiplier;
 
-    toSvg(flowElem, {
-      backgroundColor: '#f8fafc',
-    }).then((dataUrl) => {
-      const a = document.createElement('a');
-      a.download = `${diagram.title.toLowerCase().replace(/\s+/g, '_')}.svg`;
-      a.href = dataUrl;
-      a.click();
-    });
-  }, [diagram.title]);
+      if (scope === 'all') {
+        const bounds = getNodesBounds(nodes);
+        const aspect = bounds.width > 0 && bounds.height > 0 ? bounds.width / bounds.height : 16 / 9;
+        const width = Math.round(targetHeight * aspect);
+        const viewport = getViewportForBounds(bounds, width, targetHeight, 0.05, 2, 0.08);
+        return {
+          width,
+          height: targetHeight,
+          transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.zoom})`,
+        };
+      }
+
+      const rect = reactFlowWrapper.current!.getBoundingClientRect();
+      const aspect = rect.width / rect.height;
+      const width = Math.round(targetHeight * aspect);
+      const scaleUp = targetHeight / rect.height;
+      const current = reactFlowInstance.getViewport();
+      return {
+        width,
+        height: targetHeight,
+        transform: `translate(${current.x * scaleUp}px, ${current.y * scaleUp}px) scale(${current.zoom * scaleUp})`,
+      };
+    },
+    [nodes, reactFlowInstance]
+  );
+
+  const handleExport = useCallback(
+    async ({ format, multiplier, scope }: ExportOptions) => {
+      const flowElem = reactFlowWrapper.current?.querySelector('.react-flow__viewport') as HTMLElement | null;
+      if (!flowElem) return;
+
+      const { width, height, transform } = computeExportGeometry(scope, multiplier);
+      const filename = diagram.title.toLowerCase().replace(/\s+/g, '_');
+      const captureOptions = {
+        backgroundColor: '#f8fafc',
+        width,
+        height,
+        // Without this, html-to-image multiplies width/height by the
+        // exporting device's own devicePixelRatio on top of our already
+        // explicit target size — the same "2x" export would come out a
+        // different actual pixel size on a hiDPI screen vs. a standard one.
+        pixelRatio: 1,
+        style: {
+          width: `${width}px`,
+          height: `${height}px`,
+          transform,
+        },
+      };
+
+      if (format === 'svg') {
+        const dataUrl = await toSvg(flowElem, captureOptions);
+        downloadDataUrl(dataUrl, `${filename}.svg`);
+        return;
+      }
+
+      const dataUrl = await toPng(flowElem, { ...captureOptions, quality: 0.95 });
+
+      if (format === 'png') {
+        downloadDataUrl(dataUrl, `${filename}.png`);
+        return;
+      }
+
+      // pdf
+      const pdf = new jsPDF({
+        orientation: width >= height ? 'landscape' : 'portrait',
+        unit: 'px',
+        format: [width, height],
+      });
+      pdf.addImage(dataUrl, 'PNG', 0, 0, width, height);
+      pdf.save(`${filename}.pdf`);
+    },
+    [computeExportGeometry, diagram.title]
+  );
 
   const handleExportJSON = useCallback(() => {
     // Export the live canvas state (nodes/edges currently in memory), not a
@@ -1881,12 +1952,34 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
       { id: 'tidy-layout', label: 'Tidy layout', onRun: handleAutoLayout },
       { id: 'toggle-left-sidebar', label: 'Toggle left sidebar', onRun: () => setLeftVisible((v) => !v) },
       { id: 'toggle-right-sidebar', label: 'Toggle right panel', onRun: () => setRightVisible((v) => !v) },
-      { id: 'export-png', label: 'Export as PNG', onRun: handleExportPNG },
-      { id: 'export-svg', label: 'Export as SVG', onRun: handleExportSVG },
+      {
+        id: 'export-png',
+        label: 'Export as PNG…',
+        onRun: () => {
+          setExportFormat('png');
+          setExportModalOpen(true);
+        },
+      },
+      {
+        id: 'export-svg',
+        label: 'Export as SVG…',
+        onRun: () => {
+          setExportFormat('svg');
+          setExportModalOpen(true);
+        },
+      },
+      {
+        id: 'export-pdf',
+        label: 'Export as PDF…',
+        onRun: () => {
+          setExportFormat('pdf');
+          setExportModalOpen(true);
+        },
+      },
       { id: 'export-json', label: 'Export as JSON', onRun: handleExportJSON },
       { id: 'back-to-dashboard', label: 'Back to Dashboard', onRun: () => router.push('/dashboard') },
     ],
-    [handleSaveNow, handleAutoLayout, handleExportPNG, handleExportSVG, handleExportJSON, router]
+    [handleSaveNow, handleAutoLayout, handleExportJSON, router]
   );
 
   const handleImportJSON = useCallback(
@@ -1962,8 +2055,10 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
           isDirtyRef.current = true;
           setDefaultEdgeType(t);
         }}
-        onExportPNG={handleExportPNG}
-        onExportSVG={handleExportSVG}
+        onOpenExportModal={(format) => {
+          setExportFormat(format);
+          setExportModalOpen(true);
+        }}
         onExportJSON={handleExportJSON}
         onImportJSON={handleImportJSON}
         onOpenAiModal={() => setIsAiModalOpen(true)}
@@ -2330,6 +2425,14 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
       </div>
 
       <CommandPalette actions={commandPaletteActions} />
+
+      <ExportModal
+        isOpen={exportModalOpen}
+        onClose={() => setExportModalOpen(false)}
+        initialFormat={exportFormat}
+        diagramTitle={diagram.title}
+        onExport={handleExport}
+      />
 
       {canEdit && (
         <AiAssistantModal
