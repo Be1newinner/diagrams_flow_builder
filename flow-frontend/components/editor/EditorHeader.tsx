@@ -181,7 +181,7 @@ export function EditorHeader({
       {/* Left: Back button & Title */}
       <div className="flex items-center gap-3 min-w-0">
         <Link
-          href="/"
+          href="/dashboard"
           className="inline-flex items-center gap-2 px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors"
           title="Back to Dashboard"
         >

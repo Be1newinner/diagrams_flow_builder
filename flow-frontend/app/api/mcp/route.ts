@@ -9,9 +9,9 @@ import {
 } from '@/lib/serverStorage';
 import { tidyLayout } from '@/lib/layout';
 import { Diagram, DiagramCategory, Node, Edge } from '@/types/diagram';
+import { SITE_URL } from '@/lib/siteConfig';
 
-const LIVE_APP_URL = 'https://diagrams-flow-builder.vercel.app';
-const getEditorUrl = (id: string) => `${LIVE_APP_URL}/flow/${id}`;
+const getEditorUrl = (id: string) => `${SITE_URL}/flow/${id}`;
 
 // Auth info the token verifier attaches; carried through to every tool call.
 interface McpAuthExtra {
@@ -110,7 +110,7 @@ const handler = createMcpHandler(
           updatedAt: d.updatedAt,
           url: getEditorUrl(d.id),
         }));
-        return jsonResult({ total: summary.length, appUrl: LIVE_APP_URL, diagrams: summary });
+        return jsonResult({ total: summary.length, appUrl: SITE_URL, diagrams: summary });
       }
     );
 
@@ -164,7 +164,7 @@ const handler = createMcpHandler(
           const saved = await saveServerDiagram(diagram, userId);
           return jsonResult({
             success: true,
-            message: `Created diagram "${saved.title}" successfully on ${LIVE_APP_URL}.`,
+            message: `Created diagram "${saved.title}" successfully on ${SITE_URL}.`,
             diagramId: saved.id,
             category: saved.category,
             nodeCount: saved.nodes.length,

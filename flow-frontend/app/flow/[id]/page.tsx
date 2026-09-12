@@ -1884,7 +1884,7 @@ function FlowEditorCanvas({ initialDiagram }: { initialDiagram: Diagram }) {
       { id: 'export-png', label: 'Export as PNG', onRun: handleExportPNG },
       { id: 'export-svg', label: 'Export as SVG', onRun: handleExportSVG },
       { id: 'export-json', label: 'Export as JSON', onRun: handleExportJSON },
-      { id: 'back-to-dashboard', label: 'Back to Dashboard', onRun: () => router.push('/') },
+      { id: 'back-to-dashboard', label: 'Back to Dashboard', onRun: () => router.push('/dashboard') },
     ],
     [handleSaveNow, handleAutoLayout, handleExportPNG, handleExportSVG, handleExportJSON, router]
   );
@@ -2429,7 +2429,7 @@ export default function FlowEditorPage() {
             The requested diagram may have been removed or does not exist.
           </p>
           <Link
-            href="/"
+            href="/dashboard"
             className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-xs"
           >
             <ArrowLeft className="w-3.5 h-3.5" />

@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { FlowCraftLogo } from '@/components/brand/FlowCraftLogo';
+import { SITE_URL } from '@/lib/siteConfig';
 
 export default function McpConfigPage() {
   const { user, openLoginModal } = useAuth();
@@ -34,7 +35,7 @@ export default function McpConfigPage() {
   const [activeTab, setActiveTab] = useState<'remote' | 'claude' | 'cursor' | 'windsurf' | 'terminal'>('remote');
   const [activeOs, setActiveOs] = useState<'mac' | 'linux' | 'windows'>('linux');
 
-  const liveAppUrl = 'https://diagrams-flow-builder.vercel.app';
+  const liveAppUrl = SITE_URL;
   const liveApiUrl = `${liveAppUrl}/api/diagrams`;
   const mcpEndpointUrl = `${liveAppUrl}/api/mcp`;
 
@@ -221,7 +222,7 @@ export default function McpConfigPage() {
         <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Link
-              href="/"
+              href="/dashboard"
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200/80 rounded-lg transition-colors"
             >
               <ArrowLeft className="w-3.5 h-3.5" />

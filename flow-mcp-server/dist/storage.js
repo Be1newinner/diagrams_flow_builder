@@ -19,7 +19,7 @@ export function computeEdgeMarkers(data) {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 // Live Vercel Application Configuration
-export const DEFAULT_APP_URL = 'https://diagrams-flow-builder.vercel.app';
+export const DEFAULT_APP_URL = 'https://flowcraft.shipsar.in';
 export const APP_URL = process.env.FLOW_APP_URL || DEFAULT_APP_URL;
 export const API_URL = process.env.FLOW_API_URL || `${APP_URL}/api/diagrams`;
 // Long-lived MCP JWT (see lib/auth.ts generateMcpToken on the frontend) — required
